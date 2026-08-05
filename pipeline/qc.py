@@ -14,6 +14,13 @@ segmentos delimitados por descontinuidades:
 4. Descarta o segmento inteiro se a mediana de |v/referência| do segmento
    estiver fora de [1/SEGMENTO_RAZAO, SEGMENTO_RAZAO] — assinatura de erro de
    curva-chave/escala. Segmentos coerentes (mesmo em seca extrema) permanecem.
+5. Descarta segmentos CURTOS (<= CURTO_DIAS) delimitados por salto nos DOIS
+   lados (entra e sai por descontinuidade, sem lacuna): um rio não cai/sobe
+   >2,5x num dia e retorna dias depois — é pico/vale espúrio, mesmo quando o
+   nível fica dentro da faixa sazonal.
+6. Despike final contra a vizinhança: ponto que desvia mais de VIZINHANCA_RAZAO
+   da mediana dos vizinhos a até 3 dias é descartado (pega vales/picos cuja
+   recuperação é gradual ou atravessa lacunas, ex.: fim de fev/2017).
 """
 
 from __future__ import annotations
@@ -28,6 +35,9 @@ log = logging.getLogger(__name__)
 SALTO_RAZAO = 2.5      # razão dia-a-dia que caracteriza descontinuidade
 LACUNA_DIAS = 3        # lacuna que também inicia novo segmento
 SEGMENTO_RAZAO = 4.0   # desvio mediano do segmento vs referência para descartar
+CURTO_DIAS = 7         # segmento até este tamanho, entre dois saltos, é espúrio
+VIZINHANCA_RAZAO = 1.8  # desvio máximo de um ponto vs mediana dos ±3 dias vizinhos
+VIZINHANCA_DIAS = 3
 SUAVIZACAO_DIAS = 7    # meia-janela da suavização circular da referência
 
 OFFSETS_MES = [0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335]
@@ -80,23 +90,65 @@ def qc_telemetria(df_tele: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
 
     desvio = logv - ref[idx_dia]
     manter = np.ones(len(df), dtype=bool)
-    for s in np.unique(segmento):
+    seg_ids = np.unique(segmento)
+    # tipo da fronteira de ENTRADA de cada segmento: salto contíguo (sem lacuna)
+    primeiro_idx = {s: int(np.argmax(segmento == s)) for s in seg_ids}
+    entrada_salto = {
+        s: bool(salto[primeiro_idx[s]] > np.log(SALTO_RAZAO)
+                and lacuna[primeiro_idx[s]] <= LACUNA_DIAS)
+        for s in seg_ids
+    }
+    for n, s in enumerate(seg_ids):
         sel = segmento == s
+        datas_seg = df.loc[sel, "HORDATAHORA"]
+        trecho = {
+            "inicio": datas_seg.min().date().isoformat(),
+            "fim": datas_seg.max().date().isoformat(),
+            "dias": int(sel.sum()),
+        }
         dev = desvio[sel]
         dev = dev[~np.isnan(dev)]
-        if len(dev) == 0:
-            continue
-        med = float(np.median(dev))
-        if abs(med) > np.log(SEGMENTO_RAZAO):
+        med = float(np.median(dev)) if len(dev) else None
+
+        if med is not None and abs(med) > np.log(SEGMENTO_RAZAO):
             manter[sel] = False
-            datas_seg = df.loc[sel, "HORDATAHORA"]
+            trecho["motivo"] = "salto de escala vs referência sazonal"
+            trecho["razao_mediana_vs_referencia"] = round(float(np.exp(med)), 2)
+            rel["trechos_descartados"].append(trecho)
+            continue
+
+        # pico/vale curto: entra E sai por salto (próximo segmento contíguo)
+        proximo = seg_ids[n + 1] if n + 1 < len(seg_ids) else None
+        saida_salto = proximo is not None and entrada_salto[proximo]
+        if int(sel.sum()) <= CURTO_DIAS and entrada_salto[s] and saida_salto:
+            manter[sel] = False
+            trecho["motivo"] = "pico/vale curto entre dois saltos"
+            if med is not None:
+                trecho["razao_mediana_vs_referencia"] = round(float(np.exp(med)), 2)
+            rel["trechos_descartados"].append(trecho)
+
+    # despike final: ponto vs mediana dos vizinhos (até VIZINHANCA_DIAS de distância)
+    ordinais = dias.map(pd.Timestamp.toordinal).to_numpy()
+    idx_validos = np.where(manter)[0]
+    ord_validos = ordinais[idx_validos]
+    log_validos = logv[idx_validos]
+    for k, i in enumerate(idx_validos):
+        dist = np.abs(ord_validos - ordinais[i])
+        viz = (dist >= 1) & (dist <= VIZINHANCA_DIAS)
+        if viz.sum() < 3:
+            continue
+        med_viz = float(np.median(log_validos[viz]))
+        if abs(logv[i] - med_viz) > np.log(VIZINHANCA_RAZAO):
+            manter[i] = False
             rel["trechos_descartados"].append({
-                "inicio": datas_seg.min().date().isoformat(),
-                "fim": datas_seg.max().date().isoformat(),
-                "dias": int(sel.sum()),
-                "razao_mediana_vs_referencia": round(float(np.exp(med)), 2),
+                "inicio": dias.iloc[i].date().isoformat(),
+                "fim": dias.iloc[i].date().isoformat(),
+                "dias": 1,
+                "motivo": "desvio pontual vs vizinhança",
+                "razao_mediana_vs_referencia": round(float(np.exp(logv[i] - med_viz)), 2),
             })
 
+    rel["trechos_descartados"].sort(key=lambda t: t["inicio"])
     rel["dias_descartados"] = rel["valores_nao_positivos"] + int((~manter).sum())
     if rel["dias_descartados"]:
         log.warning(

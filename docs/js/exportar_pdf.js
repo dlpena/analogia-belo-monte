@@ -138,7 +138,7 @@ const ExportarPDF = (() => {
 
     if (docE.qc && docE.qc.dias_descartados) {
       const trechos = (docE.qc.trechos_descartados || [])
-        .map((tr) => `${tr.inicio}..${tr.fim} (${tr.dias}d, ${String(tr.razao_mediana_vs_referencia).replace(".", ",")}x)`)
+        .map((tr) => `${tr.inicio}..${tr.fim} (${tr.dias}d${tr.razao_mediana_vs_referencia !== undefined ? `, ${String(tr.razao_mediana_vs_referencia).replace(".", ",")}x` : ""}${tr.motivo ? `, ${tr.motivo}` : ""})`)
         .join("; ");
       y = nota(pdf,
         `Controle de qualidade: ${docE.qc.dias_descartados} dia(s) descartado(s) — ` +
