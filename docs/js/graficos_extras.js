@@ -38,6 +38,8 @@ const GraficosExtras = (() => {
       yaxis: {
         fixedrange: true,
         title: { text: `${doc.grandeza || "Cota"} (${doc.unidade || "cm"})`, font: { size: 12 } },
+        tickformat: ",d",   // valor inteiro com separador de milhar (sem "k")
+        nticks: 14,         // passo menor entre os ticks
         gridcolor: "#efefec",
         zeroline: false,
       },
