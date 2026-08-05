@@ -1,0 +1,3 @@
+# O projeto roda com o venv do "app bancos ANA" (../app bancos ANA/.venv),
+# que já contém pyodbc, msal, pandas, plotly. Dependências extras deste projeto:
+pyarrow>=15
