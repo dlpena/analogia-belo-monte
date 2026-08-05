@@ -18,9 +18,12 @@ segmentos delimitados por descontinuidades:
    lados (entra e sai por descontinuidade, sem lacuna): um rio não cai/sobe
    >2,5x num dia e retorna dias depois — é pico/vale espúrio, mesmo quando o
    nível fica dentro da faixa sazonal.
-6. Despike final contra a vizinhança: ponto que desvia mais de VIZINHANCA_RAZAO
-   da mediana dos vizinhos a até 3 dias é descartado (pega vales/picos cuja
-   recuperação é gradual ou atravessa lacunas, ex.: fim de fev/2017).
+6. Despike final contra a vizinhança, iterativo: ponto que desvia mais de
+   VIZINHANCA_RAZAO da mediana dos vizinhos a até VIZINHANCA_DIAS é descartado
+   (pega vales/picos cuja recuperação é gradual ou atravessa lacunas — fim de
+   fev/2017, mar/2021, nov/2017). Limiar calibrado empiricamente: no histórico
+   limpo, nenhum ponto legítimo (nem picos de cheia) desvia mais de ~1,35x da
+   mediana de ±5 dias.
 """
 
 from __future__ import annotations
@@ -36,8 +39,8 @@ SALTO_RAZAO = 2.5      # razão dia-a-dia que caracteriza descontinuidade
 LACUNA_DIAS = 3        # lacuna que também inicia novo segmento
 SEGMENTO_RAZAO = 4.0   # desvio mediano do segmento vs referência para descartar
 CURTO_DIAS = 7         # segmento até este tamanho, entre dois saltos, é espúrio
-VIZINHANCA_RAZAO = 1.8  # desvio máximo de um ponto vs mediana dos ±3 dias vizinhos
-VIZINHANCA_DIAS = 3
+VIZINHANCA_RAZAO = 1.4  # desvio máximo de um ponto vs mediana da vizinhança
+VIZINHANCA_DIAS = 5
 SUAVIZACAO_DIAS = 7    # meia-janela da suavização circular da referência
 
 OFFSETS_MES = [0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335]
@@ -127,26 +130,31 @@ def qc_telemetria(df_tele: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
                 trecho["razao_mediana_vs_referencia"] = round(float(np.exp(med)), 2)
             rel["trechos_descartados"].append(trecho)
 
-    # despike final: ponto vs mediana dos vizinhos (até VIZINHANCA_DIAS de distância)
+    # despike final iterativo: ponto vs mediana dos vizinhos (até VIZINHANCA_DIAS)
     ordinais = dias.map(pd.Timestamp.toordinal).to_numpy()
-    idx_validos = np.where(manter)[0]
-    ord_validos = ordinais[idx_validos]
-    log_validos = logv[idx_validos]
-    for k, i in enumerate(idx_validos):
-        dist = np.abs(ord_validos - ordinais[i])
-        viz = (dist >= 1) & (dist <= VIZINHANCA_DIAS)
-        if viz.sum() < 3:
-            continue
-        med_viz = float(np.median(log_validos[viz]))
-        if abs(logv[i] - med_viz) > np.log(VIZINHANCA_RAZAO):
-            manter[i] = False
-            rel["trechos_descartados"].append({
-                "inicio": dias.iloc[i].date().isoformat(),
-                "fim": dias.iloc[i].date().isoformat(),
-                "dias": 1,
-                "motivo": "desvio pontual vs vizinhança",
-                "razao_mediana_vs_referencia": round(float(np.exp(logv[i] - med_viz)), 2),
-            })
+    for _ in range(5):
+        idx_validos = np.where(manter)[0]
+        ord_validos = ordinais[idx_validos]
+        log_validos = logv[idx_validos]
+        removidos = 0
+        for i in idx_validos:
+            dist = np.abs(ord_validos - ordinais[i])
+            viz = (dist >= 1) & (dist <= VIZINHANCA_DIAS)
+            if viz.sum() < 2:
+                continue
+            med_viz = float(np.median(log_validos[viz]))
+            if abs(logv[i] - med_viz) > np.log(VIZINHANCA_RAZAO):
+                manter[i] = False
+                removidos += 1
+                rel["trechos_descartados"].append({
+                    "inicio": dias.iloc[i].date().isoformat(),
+                    "fim": dias.iloc[i].date().isoformat(),
+                    "dias": 1,
+                    "motivo": "desvio pontual vs vizinhança",
+                    "razao_mediana_vs_referencia": round(float(np.exp(logv[i] - med_viz)), 2),
+                })
+        if not removidos:
+            break
 
     rel["trechos_descartados"].sort(key=lambda t: t["inicio"])
     rel["dias_descartados"] = rel["valores_nao_positivos"] + int((~manter).sum())
