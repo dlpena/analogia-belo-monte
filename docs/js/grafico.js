@@ -2,7 +2,9 @@
 "use strict";
 
 const Grafico = (() => {
-  const REGISTRO = new Map(); // slug -> {doc, grafico, resultado atual} p/ o PDF do conjunto
+  const REGISTRO = new Map();
+  let UNIDADE = "cm";      // definidos por montarSecao a partir do JSON
+  let GRANDEZA = "Cota"; // slug -> {doc, grafico, resultado atual} p/ o PDF do conjunto
   const CORES = {
     observado: "#1a1a1a",
     maiorQueda: "#D55E00",
@@ -40,7 +42,7 @@ const Grafico = (() => {
       x, y, name: nome, mode: "lines",
       line: { color: cor, width: largura },
       hoverinfo: visivelHover ? undefined : "skip",
-      hovertemplate: visivelHover ? `${nome}: %{y:.0f} cm<extra></extra>` : undefined,
+      hovertemplate: visivelHover ? `${nome}: %{y:.0f} ${UNIDADE}<extra></extra>` : undefined,
       showlegend: false, connectgaps: false,
     };
   }
@@ -79,8 +81,8 @@ const Grafico = (() => {
     const c = r.candidatos.find((c) => c.ano === ano);
     if (!c || c.delta === null) return "";
     return c.delta >= 0
-      ? ` · queda ${Math.round(c.delta)} cm`
-      : ` · subida ${Math.round(-c.delta)} cm`;
+      ? ` · queda ${Math.round(c.delta)} ${UNIDADE}`
+      : ` · subida ${Math.round(-c.delta)} ${UNIDADE}`;
   }
 
   /** Amplitude vertical dos dados plotados (para calibrar a anticolisão). */
@@ -128,7 +130,7 @@ const Grafico = (() => {
     if (r.trajetorias) {
       for (const [ano, serie] of Object.entries(r.trajetorias.todas)) {
         const t = traceAno(serie, datas, ano, CORES.anoAnalogo, 1, true);
-        t.hovertemplate = `${ano} (análogo): %{y:.0f} cm<extra></extra>`;
+        t.hovertemplate = `${ano} (análogo): %{y:.0f} ${UNIDADE}<extra></extra>`;
         traces.push(t);
       }
       const tj = r.trajetorias;
@@ -194,7 +196,7 @@ const Grafico = (() => {
       },
       yaxis: {
         fixedrange: true,
-        title: { text: "Cota (cm)", font: { size: 12 } },
+        title: { text: `${GRANDEZA} (${UNIDADE})`, font: { size: 12 } },
         gridcolor: "#efefec",
         zeroline: false,
       },
@@ -230,12 +232,12 @@ const Grafico = (() => {
     L.push(`Memória de cálculo — projeção por analogia;${cab}`);
     L.push(`Gerado em;${new Date().toLocaleString("pt-BR")}`);
     L.push(`Dados atualizados em;${formatarDataBR(doc.ultima_data)};fonte do último dado;${doc.fonte_ultimo_dado}`);
-    L.push(`Dia D;${formatarDataBR(r.dia_d)};Cota atual (cm);${numeroBR(r.cota_atual, 0)}`);
-    L.push(`Intervalo (cota atual ±);${numeroBR(r.range_valor)} ${r.modo === "cm" ? "cm" : "%"};equivalente em cm;±${numeroBR(r.limite_cm)}`);
+    L.push(`Dia D;${formatarDataBR(r.dia_d)};${GRANDEZA} atual (${UNIDADE});${numeroBR(r.cota_atual, 0)}`);
+    L.push(`Intervalo (${GRANDEZA.toLowerCase()} atual ±);${numeroBR(r.range_valor)} ${r.modo === "cm" ? UNIDADE : "%"};equivalente em ${UNIDADE};±${numeroBR(r.limite_cm)}`);
     L.push(`Regras;tolerância ±3 dias no dia D;cobertura pós-D ≥80% e dado nos últimos 10 dias do ano`);
     L.push("");
     L.push("BLOCO 1 — Anos candidatos (universo completo e seleção)");
-    L.push("ano;fonte_dos_dados;cota_em_D_cm;dias_tolerancia;cobertura_pos_D_%;min_pos_D_cm;delta_queda_cm;selecionado;motivo_exclusao");
+    L.push(`ano;fonte_dos_dados;valor_em_D_${UNIDADE};dias_tolerancia;cobertura_pos_D_%;min_pos_D_${UNIDADE};delta_queda_${UNIDADE};selecionado;motivo_exclusao`);
     for (const c of r.candidatos) {
       L.push([
         c.ano,
@@ -251,7 +253,7 @@ const Grafico = (() => {
     }
     L.push("");
     L.push("BLOCO 2 — Séries do gráfico (dia a dia do ano corrente)");
-    L.push("data;observado_cm;proj_maior_queda_cm;proj_menor_queda_cm;proj_media_cm;interpolado");
+    L.push(`data;observado_${UNIDADE};proj_maior_queda_${UNIDADE};proj_menor_queda_${UNIDADE};proj_media_${UNIDADE};interpolado`);
     const datas = datasDoAno(r.ano_atual);
     const obs = doc.anos[String(r.ano_atual)];
     const tj = r.trajetorias;
@@ -283,6 +285,8 @@ const Grafico = (() => {
 
   /** Cria a seção completa da estação dentro de `main`. */
   function montarSecao(main, doc) {
+    UNIDADE = doc.unidade || "cm";
+    GRANDEZA = doc.grandeza || "Cota";
     const sec = document.createElement("section");
     sec.className = "estacao";
     sec.id = doc.slug;
@@ -291,16 +295,16 @@ const Grafico = (() => {
         <h2>${doc.nome}</h2>
         <span class="estacao-codigos">rio ${doc.rio || "—"} · HidroWeb ${doc.codigo_hidroweb} · equip. ${doc.estcodigo_telemetria}</span>
         <span class="estacao-ultimo">Último dado: <strong>${formatarDataBR(doc.ultima_data)}</strong>
-          · ${doc.ultimo_valor} cm (${doc.fonte_ultimo_dado})</span>
+          · ${doc.ultimo_valor} ${doc.unidade} (${doc.fonte_ultimo_dado})</span>
       </div>
       <div class="controles">
-        <label title="Entram como análogos os anos em que a cota, neste mesmo dia do calendário, estava até este valor acima ou abaixo da cota atual.">
-          Intervalo (cota atual ±)
+        <label title="Entram como análogos os anos em que o valor, neste mesmo dia do calendário, estava até esta distância acima ou abaixo do valor atual.">
+          Intervalo (${GRANDEZA.toLowerCase()} atual ±)
           <input type="range" min="1" max="500" step="1" value="10" class="ctl-slider">
           <input type="number" min="0.5" max="500" step="0.5" value="10" class="ctl-num">
-          <span class="ctl-unidade">cm</span></label>
+          <span class="ctl-unidade">${UNIDADE}</span></label>
         <span class="modo">
-          <button type="button" class="ctl-cm ativo">± cm</button>
+          <button type="button" class="ctl-cm ativo">± ${UNIDADE}</button>
           <button type="button" class="ctl-pct">± %</button>
         </span>
         <span>Anos análogos: <span class="contagem">–</span></span>
@@ -342,7 +346,7 @@ const Grafico = (() => {
       el.contagem.textContent = String(r.selecionados.length);
       el.aviso.textContent = r.aviso || "";
       el.rodape.textContent = r.selecionados.length
-        ? `Anos análogos (cota em ${formatarDataBR(r.dia_d).slice(0, 5)} dentro de ±${numeroBR(r.limite_cm)} cm da atual): ${r.selecionados.join(", ")}.`
+        ? `Anos análogos (${GRANDEZA.toLowerCase()} em ${formatarDataBR(r.dia_d).slice(0, 5)} dentro de ±${numeroBR(r.limite_cm)} ${UNIDADE} da atual): ${r.selecionados.join(", ")}.`
         : "";
     }
 
@@ -376,7 +380,7 @@ const Grafico = (() => {
       estado.range = novo;
       el.btnCm.classList.toggle("ativo", modo === "cm");
       el.btnPct.classList.toggle("ativo", modo === "pct");
-      el.unidade.textContent = modo === "cm" ? "cm" : "%";
+      el.unidade.textContent = modo === "cm" ? UNIDADE : "%";
       el.slider.step = modo === "cm" ? "1" : "0.1";
       el.slider.max = modo === "cm"
         ? String(Math.max(500, Math.ceil(rangeAuto * 2), Math.ceil(novo)))

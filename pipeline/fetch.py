@@ -100,9 +100,10 @@ def buscar_cotas(conn, estacao: dict, full: bool = False) -> tuple[pd.DataFrame,
     # ---- HIDRO (níveis 1 e 2) ----
     ini_h = ((fronteira_h + timedelta(days=1)).isoformat()
              if fronteira_h is not None else INICIO_HISTORICO)
-    log.info("%s: HIDRO de %s em diante", slug, ini_h)
+    variavel = estacao.get("variavel", "cota")
+    log.info("%s: HIDRO (%s) de %s em diante", slug, variavel, ini_h)
     df_novo_h = queries.serie_hidro_diaria(
-        conn, "cota", estacao["codigo_hidroweb"], ini_h, amanha)
+        conn, variavel, estacao["codigo_hidroweb"], ini_h, amanha)
 
     nova_f_h = _fronteira_hidro(df_novo_h, fronteira_h)
     if nova_f_h is not None and (fronteira_h is None or nova_f_h > fronteira_h):
@@ -121,9 +122,9 @@ def buscar_cotas(conn, estacao: dict, full: bool = False) -> tuple[pd.DataFrame,
     # ---- Telemetria (agregada por dia no servidor) ----
     ini_t = ((fronteira_t + timedelta(days=1)).isoformat()
              if fronteira_t is not None else INICIO_HISTORICO)
-    log.info("%s: telemetria de %s em diante", slug, ini_t)
+    log.info("%s: telemetria (%s) de %s em diante", slug, variavel, ini_t)
     df_novo_t = queries.serie_periodo(
-        conn, "cota", estacao["estcodigo_telemetria"], ini_t, amanha,
+        conn, variavel, estacao["estcodigo_telemetria"], ini_t, amanha,
         agregacao="diaria")[["HORDATAHORA", "valor"]]
 
     limite = _limite_congelamento()

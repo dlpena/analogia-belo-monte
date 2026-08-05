@@ -34,7 +34,10 @@
       try {
         const r = await fetch(`dados/${e.slug}.json`, { cache: "no-cache" });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        Grafico.montarSecao(main, await r.json());
+        const docEstacao = await r.json();
+        Grafico.montarSecao(main, docEstacao);
+        GraficosExtras.montarComparacao(main, docEstacao);
+        GraficosExtras.montarHistorico(main, docEstacao);
       } catch (err) {
         const p = document.createElement("p");
         p.className = "erro";
@@ -51,7 +54,7 @@
       const original = btn.textContent;
       btn.textContent = "Gerando…";
       try {
-        await ExportarPDF.gerarConjunto([...Grafico.registro.values()]);
+        await ExportarPDF.gerarConjunto([...Grafico.registro.values()], GraficosExtras.extras);
       } catch (err) {
         alert(`Falha ao gerar o PDF: ${err.message}`);
       } finally {

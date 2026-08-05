@@ -110,17 +110,18 @@ def main() -> int:
             )
             return 2
 
-        from pipeline import fetch, integrar, exportar_json
+        from pipeline import fetch, integrar, exportar_json, qc
 
         resumos, falhas = [], []
         for est in alvos:
             try:
                 df_hidro, df_tele = fetch.buscar_cotas(conn, est, full=args.full)
-                df_tele = integrar.filtrar_telemetria(df_tele)
+                df_tele, relatorio_qc = qc.qc_telemetria(df_tele)
                 integrada = integrar.serie_integrada(df_hidro, df_tele)
                 if integrada.empty:
                     raise RuntimeError("série integrada vazia")
-                resumos.append(exportar_json.exportar_estacao(est, integrada, df_hidro, df_tele))
+                resumos.append(exportar_json.exportar_estacao(
+                    est, integrada, df_hidro, df_tele, qc_relatorio=relatorio_qc))
                 log.info("%s: JSON exportado (última data %s)", est["slug"], resumos[-1]["ultima_data"])
             except Exception:
                 log.exception("%s: falha — mantendo JSON anterior", est["slug"])

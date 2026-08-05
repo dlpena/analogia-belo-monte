@@ -65,7 +65,8 @@ def cobertura_fontes(df_hidro: pd.DataFrame | None,
 
 def exportar_estacao(estacao: dict, integrada: pd.DataFrame,
                      df_hidro: pd.DataFrame | None = None,
-                     df_tele: pd.DataFrame | None = None) -> dict:
+                     df_tele: pd.DataFrame | None = None,
+                     qc_relatorio: dict | None = None) -> dict:
     """Grava docs/dados/{slug}.json e retorna o resumo para o indice.json."""
     anos: dict[str, list] = {}
     fontes_por_ano: dict[str, set] = {}
@@ -84,7 +85,9 @@ def exportar_estacao(estacao: dict, integrada: pd.DataFrame,
         "rio": estacao.get("rio"),
         "codigo_hidroweb": estacao["codigo_hidroweb"],
         "estcodigo_telemetria": estacao["estcodigo_telemetria"],
-        "unidade": "cm",
+        "variavel": estacao.get("variavel", "cota"),
+        "grandeza": estacao.get("grandeza", "Cota"),
+        "unidade": estacao.get("unidade", "cm"),
         "gerado_em": datetime.now().astimezone().isoformat(timespec="seconds"),
         "ultima_data": ultima["data"].date().isoformat(),
         "ultimo_valor": int(round(ultima["valor"])),
@@ -93,6 +96,7 @@ def exportar_estacao(estacao: dict, integrada: pd.DataFrame,
             ano: "+".join(sorted(f)) for ano, f in sorted(fontes_por_ano.items())
         },
         "cobertura_fontes": cobertura_fontes(df_hidro, df_tele),
+        "qc": qc_relatorio,
         "anos": {ano: anos[ano] for ano in sorted(anos)},
     }
     caminho = DIR_DADOS_SITE / f"{estacao['slug']}.json"

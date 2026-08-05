@@ -91,6 +91,8 @@ const ExportarPDF = (() => {
   /* ---------------- memória de cálculo (retrato) ---------------- */
 
   function memoriaDoc(docE, r) {
+    const u = docE.unidade || "cm";
+    const grandeza = docE.grandeza || "Cota";
     const pdf = new window.jspdf.jsPDF({ unit: "mm", format: "a4" });
     const largura = 210 - 2 * MARGEM;
     let y = MARGEM + 3;
@@ -110,8 +112,8 @@ const ExportarPDF = (() => {
       ...GRADE, startY: y,
       body: [
         ["Dia D (último dado)", `${dataD} (${docE.fonte_ultimo_dado})`,
-         "Cota atual", `${fmt(r.cota_atual, 0)} cm`],
-        ["Intervalo (cota atual ±)", t(`${rotuloRange(r)} — o ajustado na tela (equivale a ±${fmt(r.limite_cm)} cm)`),
+         `${grandeza} atual`, `${fmt(r.cota_atual, 0)} ${u}`],
+        [t(`Intervalo (${grandeza.toLowerCase()} atual ±)`), t(`${rotuloRange(r)} — o ajustado na tela (equivale a ±${fmt(r.limite_cm)} ${u})`),
          "Anos análogos", String(r.selecionados.length)],
       ],
       columnStyles: { 0: { fontStyle: "bold", cellWidth: 40 }, 2: { fontStyle: "bold", cellWidth: 30 } },
@@ -134,6 +136,16 @@ const ExportarPDF = (() => {
       "disponível (consistido > bruto > telemetria). A telemetria é consultada apenas na " +
       "janela recente ainda não coberta pelo histórico congelado do HIDRO.", y, largura);
 
+    if (docE.qc && docE.qc.dias_descartados) {
+      const trechos = (docE.qc.trechos_descartados || [])
+        .map((tr) => `${tr.inicio}..${tr.fim} (${tr.dias}d, ${String(tr.razao_mediana_vs_referencia).replace(".", ",")}x)`)
+        .join("; ");
+      y = nota(pdf,
+        `Controle de qualidade: ${docE.qc.dias_descartados} dia(s) descartado(s) — ` +
+        `${docE.qc.valores_nao_positivos} valor(es) não positivos e trechos com salto de escala ` +
+        `(razão mediana vs referência sazonal): ${trechos}.`, y, largura);
+    }
+
     y = tituloSecao(pdf, "3. Universo de anos candidatos", y + 1);
     const fpa = docE.fonte_por_ano || {};
     const selecionadas = new Set();
@@ -149,8 +161,8 @@ const ExportarPDF = (() => {
     });
     pdf.autoTable({
       ...GRADE, startY: y,
-      head: [["Ano", "Fonte", "Cota em D\n(cm)", "Toler.\n(dias)", "Cobert.\npós-D (%)",
-              "Mín. pós-D\n(cm)", "Delta queda\n(cm)", "Selec.", "Motivo de exclusão"]],
+      head: [["Ano", "Fonte", `Valor em D\n(${u})`, "Toler.\n(dias)", "Cobert.\npós-D (%)",
+              `Mín. pós-D\n(${u})`, `Delta queda\n(${u})`, "Selec.", "Motivo de exclusão"]],
       body: corpo,
       columnStyles: { 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" },
                       5: { halign: "right" }, 6: { halign: "right" } },
@@ -179,8 +191,8 @@ const ExportarPDF = (() => {
       }
       pdf.autoTable({
         ...GRADE, startY: y,
-        head: [["Curva", "Ano de referência", "Mínimo projetado (cm)",
-                "Data do mínimo", "Queda desde a cota atual (cm)"]],
+        head: [["Curva", "Ano de referência", `Mínimo projetado (${u})`,
+                "Data do mínimo", `Queda desde o valor atual (${u})`]],
         body: linhas,
         columnStyles: { 2: { halign: "right" }, 4: { halign: "right" } },
       });
@@ -210,8 +222,8 @@ const ExportarPDF = (() => {
     }
     pdf.autoTable({
       ...GRADE, startY: y,
-      head: [["Data", "Observado (cm)", "Proj. maior queda (cm)",
-              "Proj. menor queda (cm)", "Proj. média (cm)", "Interpolado"]],
+      head: [["Data", `Observado (${u})`, `Proj. maior queda (${u})`,
+              `Proj. menor queda (${u})`, `Proj. média (${u})`, "Interpolado"]],
       body: serieCorpo,
       columnStyles: { 1: { halign: "right" }, 2: { halign: "right" },
                       3: { halign: "right" }, 4: { halign: "right" } },
@@ -230,7 +242,10 @@ const ExportarPDF = (() => {
 
   /* ---------------- conjunto (paisagem, capa + 1 página/estação) ---------------- */
 
-  async function conjuntoDoc(registros) {
+  async function conjuntoDoc(registros, extras = []) {
+    const doc0 = registros[0].doc;
+    const u = doc0.unidade || "cm";
+    const grandeza = doc0.grandeza || "Cota";
     const pdf = new window.jspdf.jsPDF({ unit: "mm", format: "a4", orientation: "landscape" });
     const larguraPg = 297, larguraUtil = larguraPg - 2 * MARGEM;
 
@@ -238,7 +253,7 @@ const ExportarPDF = (() => {
     pdf.text("Projeções de Nível — Estações-Chave para Hidrovias", larguraPg / 2, 45,
              { align: "center" });
     pdf.setFont("helvetica", "normal").setFontSize(11).setTextColor(60);
-    pdf.text(t("Projeção por analogia · série integrada (HIDRO consistido > bruto > telemetria) · cotas em cm"),
+    pdf.text(t(`Projeção por analogia · série integrada (HIDRO consistido > bruto > telemetria) · ${grandeza.toLowerCase()} em ${u}`),
              larguraPg / 2, 54, { align: "center" });
     pdf.text(t(`Gerado do site em ${new Date().toLocaleString("pt-BR")} — com os intervalos ajustados na tela`),
              larguraPg / 2, 61, { align: "center" });
@@ -251,7 +266,7 @@ const ExportarPDF = (() => {
     pdf.autoTable({
       ...GRADE, startY: 75,
       styles: { ...GRADE.styles, fontSize: 9, cellPadding: 1.8 },
-      head: [["Estação", "Rio", "Último dado", "Cota (cm)", "Intervalo (cota atual ±)", "Anos análogos"]],
+      head: [["Estação", "Rio", "Último dado", `${grandeza} (${u})`, t(`Intervalo (${grandeza.toLowerCase()} atual ±)`), "Anos análogos"]],
       body: corpo,
       columnStyles: { 3: { halign: "right" }, 5: { halign: "right" } },
       margin: { left: 60, right: 60 },
@@ -274,18 +289,33 @@ const ExportarPDF = (() => {
       pdf.addImage(png, "PNG", MARGEM, MARGEM + 12, larguraUtil, altura);
       pdf.setFontSize(8).setTextColor(110);
       let rodape = resultado.selecionados.length
-        ? t(`Anos análogos (±${fmt(resultado.limite_cm)} cm da cota atual ${fmt(resultado.cota_atual, 0)} cm): ` +
+        ? t(`Anos análogos (±${fmt(resultado.limite_cm)} ${u} do valor atual ${fmt(resultado.cota_atual, 0)} ${u}): ` +
             resultado.selecionados.join(", "))
         : "Nenhum ano análogo no range.";
       if (resultado.aviso) rodape += t(` · Aviso: ${resultado.aviso}`);
       pdf.text(rodape, MARGEM, 200);
     }
+
+    for (const extra of extras) {
+      const png = await Plotly.toImage(extra.grafico, { format: "png", width: 1400, height: 680, scale: 2 });
+      pdf.addPage();
+      pdf.setFont("helvetica", "bold").setFontSize(14).setTextColor(26);
+      pdf.text(t(extra.titulo), MARGEM, MARGEM + 2);
+      pdf.setFont("helvetica", "normal").setFontSize(9).setTextColor(85);
+      if (extra.subtitulo) pdf.text(t(extra.subtitulo), MARGEM, MARGEM + 8);
+      const alturaImg = (297 - 2 * MARGEM) * 680 / 1400;
+      pdf.addImage(png, "PNG", MARGEM, MARGEM + 12, 297 - 2 * MARGEM, alturaImg);
+      if (extra.rodape) {
+        pdf.setFontSize(8).setTextColor(110);
+        pdf.text(t(extra.rodape), MARGEM, 200);
+      }
+    }
     return pdf;
   }
 
-  async function gerarConjunto(registros) {
+  async function gerarConjunto(registros, extras = []) {
     const hoje = new Date().toISOString().slice(0, 10);
-    (await conjuntoDoc(registros)).save(`projecoes_conjunto_${hoje}.pdf`);
+    (await conjuntoDoc(registros, extras)).save(`projecoes_conjunto_${hoje}.pdf`);
   }
 
   return { gerarMemoria, gerarConjunto, _memoriaDoc: memoriaDoc, _conjuntoDoc: conjuntoDoc };

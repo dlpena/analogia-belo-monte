@@ -10,7 +10,8 @@ por isso o fetch deste projeto congela também o histórico de telemetria.
 
 ESTACOES = [
     {"slug": "belo-monte-montante", "nome": "UHE BELO MONTE MONTANTE", "rio": "Xingu",
-     "estcodigo_telemetria": 33552200, "codigo_hidroweb": 18821000},
+     "estcodigo_telemetria": 33552200, "codigo_hidroweb": 18821000,
+     "variavel": "vazao", "grandeza": "Vazão", "unidade": "m³/s"},
 ]
 
 POR_SLUG = {e["slug"]: e for e in ESTACOES}
