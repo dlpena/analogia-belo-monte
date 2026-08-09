@@ -184,15 +184,33 @@ const GraficosExtras = (() => {
       traces.push(t);
     }
     const media = mediaHistorica(doc, anoAtual);
-    const anosHist = Object.keys(doc.anos).filter((a) => Number(a) !== anoAtual);
+    const anosHist = Object.keys(doc.anos).map(Number).filter((a) => a !== anoAtual);
     const tMedia = traceAno({ ...doc, anos: { media } }, datas, "media", COR_MEDIA, 2.2,
                             { nome: "Média", dash: "dot" });
-    tMedia.name = `Média (${anosHist.length} anos)`;
+    tMedia.name = `Média (${Math.min(...anosHist)}–${Math.max(...anosHist)} · ${anosHist.length} anos)`;
     traces.push(tMedia);
     const tAtual = traceAno(doc, datas, anoAtual, COR_VIGENTE, 2.5,
                             { nome: `Observado ${anoAtual}` });
     tAtual.name = `Observado ${anoAtual}`;
     traces.push(tAtual);
+
+    // mínimo da média no ano, com valor e data (dia/mês)
+    let minMedia = null, dataMinMedia = null;
+    for (let i = 0; i < 366; i++) {
+      if (datas[i] !== null && media[i] !== null) {
+        if (minMedia === null || media[i] < minMedia) { minMedia = media[i]; dataMinMedia = datas[i]; }
+      }
+    }
+    if (minMedia !== null) {
+      traces.push({
+        x: [dataMinMedia], y: [minMedia], mode: "markers+text",
+        text: [`${Math.round(minMedia)} (${dataMinMedia.slice(8, 10)}/${dataMinMedia.slice(5, 7)})`],
+        textposition: "bottom center", cliponaxis: false,
+        marker: { color: COR_MEDIA, size: 8 },
+        textfont: { size: 11, color: COR_MEDIA, family: "Segoe UI, system-ui, sans-serif" },
+        hoverinfo: "skip", showlegend: false,
+      });
+    }
     Plotly.react(gd, traces, layoutBase(doc, anoAtual), CONFIG);
 
     const rodape = sec.querySelector(".estacao-rodape");
