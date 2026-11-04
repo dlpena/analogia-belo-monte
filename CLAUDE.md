@@ -24,8 +24,9 @@ elementos e mesmo algoritmo. Diferenças:
 - **Mudanças de aparência/algoritmo devem ser mantidas em sincronia com o projeto Hidrovias**
   (os arquivos de `docs/js`, `docs/css` e `pipeline/analogia.py` são cópias).
   `pipeline/analogia.py` e `docs/js/analogia.js` são **idênticos byte a byte** aos do Hidrovias
-  (conferir com `cmp`); `grafico.js`/`exportar_pdf.js` diferem (horizonte aqui; sintéticas,
-  pontos de controle com datas e trajetórias em 366 posições lá).
+  (conferir com `cmp`); `grafico.js`/`exportar_pdf.js` seguem o mesmo desenho (datas, horizonte,
+  regime), e os de lá têm a mais as séries sintéticas, as datas de toque nos pontos de controle
+  e os vários painéis no PDF do conjunto.
 - **Curvas destacadas por regime dos análogos** (nov/2026): o regime é decidido pelo conjunto,
   pela data média (circular) do mínimo e do máximo de cada análogo no ciclo de 365 dias centrado
   em D. Próximo extremo médio = mínimo: descida (maior/menor queda); = máximo: subida
