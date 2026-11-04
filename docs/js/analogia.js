@@ -1,37 +1,59 @@
 /* Algoritmo de projeção por analogia — ESPELHO de pipeline/analogia.py.
  * Qualquer mudança de regra deve ser aplicada nos dois arquivos.
- * Funções puras: sem DOM, recebem o JSON da estação e parâmetros. */
+ * Funções puras: sem DOM, recebem o JSON da estação e parâmetros.
+ * Datas em UTC (Date.UTC) para não depender do fuso do navegador. */
 "use strict";
 
 const Analogia = (() => {
   const TOLERANCIA_DIAS = 3;
   const COBERTURA_MINIMA = 0.8;
-  const DIAS_FIM_ANO = 10;
+  const DIAS_FIM_JANELA = 10;
   const MIN_ANALOGOS = 3;
 
   const OFFSETS_MES = [0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335];
   const IDX_29FEV = 59;
+  const DIA_MS = 864e5;
 
   const indiceDia = (mes, dia) => OFFSETS_MES[mes - 1] + dia - 1;
   const bissexto = (ano) => ano % 4 === 0 && (ano % 100 !== 0 || ano % 400 === 0);
 
-  function posicoesValidas(ano, ini, fim = 366) {
-    const pos = [];
-    for (let i = ini; i < fim; i++) {
-      if (i !== IDX_29FEV || bissexto(ano)) pos.push(i);
-    }
-    return pos;
+  const paraData = (iso) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d));
+  };
+  const paraISO = (dt) => dt.toISOString().slice(0, 10);
+  const somaDias = (dt, k) => new Date(dt.getTime() + k * DIA_MS);
+
+  /** Último dia do mês que fica `meses` meses após o mês de D (o mês de D não
+   * conta). Sem `meses`, 31/dez do ano de D. Espelho de fim_horizonte(). */
+  function fimHorizonte(ultimaData, meses) {
+    const y = Number(ultimaData.slice(0, 4));
+    const m = Number(ultimaData.slice(5, 7));
+    if (meses === null || meses === undefined) return `${y}-12-31`;
+    return paraISO(new Date(Date.UTC(y, m + meses, 0)));  // dia 0 = último do mês anterior
   }
 
-  function cotaEmD(serie, idxD, ano) {
+  /** Mesmo dia/mês `desloc` anos adiante; null se 29/fev inexistente. */
+  function dataAnaloga(dt, desloc) {
+    const y = dt.getUTCFullYear() + desloc, m = dt.getUTCMonth() + 1, d = dt.getUTCDate();
+    if (m === 2 && d === 29 && !bissexto(y)) return null;
+    return [y, m, d];
+  }
+
+  function valor(anos, analoga) {
+    if (analoga === null) return null;
+    const serie = anos[String(analoga[0])];
+    if (!serie) return null;
+    const v = serie[indiceDia(analoga[1], analoga[2])];
+    return v === null || v === undefined ? null : Number(v);
+  }
+
+  function cotaEmD(anos, d0, desloc) {
     for (let desvio = 0; desvio <= TOLERANCIA_DIAS; desvio++) {
       const deltas = desvio === 0 ? [0] : [-desvio, desvio];
       for (const delta of deltas) {
-        const i = idxD + delta;
-        if (i >= 0 && i < 366 && (i !== IDX_29FEV || bissexto(ano))) {
-          const v = serie[i];
-          if (v !== null && v !== undefined) return [Number(v), delta];
-        }
+        const v = valor(anos, dataAnaloga(somaDias(d0, delta), desloc));
+        if (v !== null) return [v, delta];
       }
     }
     return [null, null];
@@ -59,8 +81,8 @@ const Analogia = (() => {
 
   /** Menor range inteiro (cm, >= minimo) que seleciona pelo menos minAnalogos anos.
    * Espelho de analogia.range_inicial(). */
-  function rangeInicial(doc, minAnalogos = MIN_ANALOGOS, minimo = 50.0) {
-    const r = calcular(doc, Infinity, "cm");
+  function rangeInicial(doc, minAnalogos = MIN_ANALOGOS, minimo = 50.0, horizonteMeses = null) {
+    const r = calcular(doc, Infinity, "cm", horizonteMeses);
     const dists = r.candidatos
       .filter((c) => c.selecionado)
       .map((c) => Math.abs(c.cota_em_d - r.cota_atual))
@@ -70,27 +92,33 @@ const Analogia = (() => {
     return Math.max(minimo, Math.ceil(alvo));
   }
 
-  /** Calcula a analogia. modo: "cm" ou "pct". Espelho de analogia.calcular(). */
-  function calcular(doc, rangeValor = 10.0, modo = "cm") {
+  /** Calcula a analogia. modo: "cm" ou "pct"; horizonteMeses: meses inteiros após o
+   * mês de D (null = até 31/dez). Espelho de analogia.calcular(). */
+  function calcular(doc, rangeValor = 10.0, modo = "cm", horizonteMeses = null) {
     const anos = doc.anos;
-    const anoAtual = parseInt(doc.ultima_data.slice(0, 4), 10);
-    const mesD = parseInt(doc.ultima_data.slice(5, 7), 10);
-    const diaD = parseInt(doc.ultima_data.slice(8, 10), 10);
-    const idxD = indiceDia(mesD, diaD);
+    const d0 = paraData(doc.ultima_data);
+    const anoAtual = d0.getUTCFullYear();
+    const idxD = indiceDia(d0.getUTCMonth() + 1, d0.getUTCDate());
     const cotaAtual = Number(anos[String(anoAtual)][idxD]);
+
+    const fimISO = fimHorizonte(doc.ultima_data, horizonteMeses);
+    const nDias = Math.round((paraData(fimISO) - d0) / DIA_MS) + 1;
+    const datas = [];
+    for (let k = 0; k < nDias; k++) datas.push(somaDias(d0, k));
 
     const limite = modo === "cm" ? rangeValor : (Math.abs(cotaAtual) * rangeValor) / 100.0;
 
     const candidatos = [];
+    const janelas = new Map();
     for (const chave of Object.keys(anos).sort()) {
       const ano = parseInt(chave, 10);
       if (ano === anoAtual) continue;
-      const serie = anos[chave];
+      const desloc = ano - anoAtual;
       const cand = {
         ano, cota_em_d: null, dias_tolerancia: null, cobertura: null,
         min_pos_d: null, delta: null, selecionado: false, motivo: null,
       };
-      const [cotaD, desvio] = cotaEmD(serie, idxD, ano);
+      const [cotaD, desvio] = cotaEmD(anos, d0, desloc);
       if (cotaD === null) {
         cand.motivo = "sem dado no dia D";
         candidatos.push(cand);
@@ -99,11 +127,14 @@ const Analogia = (() => {
       cand.cota_em_d = cotaD;
       cand.dias_tolerancia = desvio;
 
-      const pos = posicoesValidas(ano, idxD);
-      const comDado = pos.filter((i) => serie[i] !== null && serie[i] !== undefined);
+      const analogas = datas.map((t) => dataAnaloga(t, desloc));
+      const valores = analogas.map((a) => valor(anos, a));
+      const pos = [];
+      for (let k = 0; k < nDias; k++) if (analogas[k] !== null) pos.push(k);
+      const comDado = pos.filter((k) => valores[k] !== null);
       cand.cobertura = pos.length ? comDado.length / pos.length : 0.0;
       if (comDado.length) {
-        const minimo = Math.min(...comDado.map((i) => Number(serie[i])));
+        const minimo = Math.min(...comDado.map((k) => valores[k]));
         cand.min_pos_d = minimo;
         cand.delta = cotaD - minimo;
       }
@@ -114,8 +145,8 @@ const Analogia = (() => {
         continue;
       }
 
-      const fimAno = comDado.filter((i) => i >= 366 - DIAS_FIM_ANO);
-      if (cand.cobertura < COBERTURA_MINIMA || fimAno.length === 0) {
+      const fimJanela = comDado.filter((k) => k >= nDias - DIAS_FIM_JANELA);
+      if (cand.cobertura < COBERTURA_MINIMA || fimJanela.length === 0) {
         cand.motivo = "série incompleta pós-D";
         candidatos.push(cand);
         continue;
@@ -123,6 +154,7 @@ const Analogia = (() => {
 
       cand.selecionado = true;
       candidatos.push(cand);
+      janelas.set(ano, valores);
     }
 
     const selecionados = candidatos.filter((c) => c.selecionado);
@@ -135,6 +167,9 @@ const Analogia = (() => {
       range_valor: rangeValor,
       modo,
       limite_cm: limite,
+      horizonte_meses: horizonteMeses,
+      fim_horizonte: fimISO,
+      datas_proj: datas.map(paraISO),
       candidatos,
       selecionados: selecionados.map((c) => c.ano),
       ano_maior_queda: null,
@@ -160,22 +195,18 @@ const Analogia = (() => {
 
     const porAno = new Map();
     for (const c of selecionados) {
-      const serie = anos[String(c.ano)];
       const offset = cotaAtual - c.cota_em_d;
-      const bruta = new Array(366).fill(null);
-      for (let i = idxD; i < 366; i++) {
-        if (serie[i] !== null && serie[i] !== undefined) bruta[i] = Number(serie[i]) + offset;
-      }
+      const bruta = janelas.get(c.ano).map((v) => (v === null ? null : v + offset));
       porAno.set(c.ano, interpolar(bruta));
     }
 
-    const media = new Array(366).fill(null);
-    for (let i = idxD; i < 366; i++) {
+    const media = new Array(nDias).fill(null);
+    for (let k = 0; k < nDias; k++) {
       const vals = [];
       for (const [cheia] of porAno.values()) {
-        if (cheia[i] !== null) vals.push(cheia[i]);
+        if (cheia[k] !== null) vals.push(cheia[k]);
       }
-      if (vals.length) media[i] = vals.reduce((s, v) => s + v, 0) / vals.length;
+      if (vals.length) media[k] = vals.reduce((s, v) => s + v, 0) / vals.length;
     }
 
     const todas = {};
@@ -192,7 +223,7 @@ const Analogia = (() => {
     return resultado;
   }
 
-  return { calcular, rangeInicial, indiceDia, bissexto, IDX_29FEV, MIN_ANALOGOS };
+  return { calcular, rangeInicial, fimHorizonte, indiceDia, bissexto, IDX_29FEV, MIN_ANALOGOS };
 })();
 
 /* Para testes de paridade com Node (ignora no navegador). */

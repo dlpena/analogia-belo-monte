@@ -129,10 +129,12 @@ def test_trajetoria_deslocada_e_interpolada():
     anos = {"2026": serie_constante(500, 0, IDX_1JUL + 1, 2026), "2001": s}
     r = analogia.calcular(doc_base(anos), 10, "cm")
     traj = r["trajetorias"]["maior_queda"]
-    assert traj[IDX_1JUL] == 500  # começa na cota atual (offset +10)
-    assert traj[IDX_1JUL + 5] == 500  # interpolado entre vizinhos 500
-    assert r["trajetorias"]["maior_queda_interp"][IDX_1JUL + 5] is True
-    assert traj[IDX_1JUL - 1] is None  # nada antes do dia D
+    # trajetórias alinhadas a datas_proj: posição 0 = dia D, última = 31/dez
+    assert r["datas_proj"][0] == "2026-07-01" and r["datas_proj"][-1] == "2026-12-31"
+    assert len(traj) == len(r["datas_proj"]) == 184
+    assert traj[0] == 500  # começa na cota atual (offset +10)
+    assert traj[5] == 500  # interpolado entre vizinhos 500
+    assert r["trajetorias"]["maior_queda_interp"][5] is True
 
 
 def test_aviso_poucos_analogos():
@@ -177,70 +179,150 @@ def test_range_inicial():
     assert analogia.range_inicial(doc_base(anos3)) == 50
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node não disponível")
-def test_paridade_range_inicial():
-    real = RAIZ / "docs" / "dados" / "itaituba.json"
-    if not real.exists():
-        pytest.skip("itaituba.json ausente")
-    doc = json.loads(real.read_text(encoding="utf-8"))
-    r_py = analogia.range_inicial(doc)
+# ---------------------------- horizonte em meses ----------------------------
+
+def test_fim_horizonte():
+    f = analogia.fim_horizonte
+    assert f("2026-11-04", None) == "2026-12-31"   # regra original
+    assert f("2026-11-04", 0) == "2026-11-30"      # só o mês quebrado
+    assert f("2026-11-04", 1) == "2026-12-31"
+    assert f("2026-11-04", 6) == "2027-05-31"
+    assert f("2026-11-04", 12) == "2027-11-30"
+    assert f("2026-12-15", 2) == "2027-02-28"
+    assert f("2027-11-10", 3) == "2028-02-29"      # 2028 bissexto
+
+
+IDX_1NOV = analogia.indice_dia(11, 1)
+
+
+def test_horizonte_atravessa_o_ano_usa_ano_seguinte_do_analogo():
+    """D = 01/11/2026, 3 meses: a janela entra em 2027 e o análogo 2001 usa 2002."""
+    anos = {
+        "2026": serie_constante(500, 0, IDX_1NOV + 1, 2026),
+        "2001": serie_constante(500, ano=2001),
+        "2002": serie_constante(300, ano=2002),   # jan-fev do análogo
+        "2003": serie_constante(505, ano=2003),   # sem 2004: janela incompleta
+    }
+    r = analogia.calcular(doc_base(anos, "2026-11-01"), 10, "cm", horizonte_meses=3)
+    assert r["fim_horizonte"] == "2027-02-28" and r["datas_proj"][-1] == "2027-02-28"
+    m = {c["ano"]: c for c in r["candidatos"]}
+    assert m[2001]["selecionado"]
+    assert m[2001]["delta"] == 200                  # 500 em D, mínimo 300 em jan/2002
+    assert m[2003]["motivo"] == "série incompleta pós-D"
+    k_15jan = r["datas_proj"].index("2027-01-15")
+    assert r["trajetorias"]["maior_queda"][k_15jan] == 300
+
+
+def test_horizonte_ano_anterior_usa_observado_do_ano_corrente():
+    """O análogo do ano anterior pode usar dados do ano corrente anteriores a D."""
+    d = analogia.indice_dia(11, 1)
+    anos = {
+        "2026": serie_constante(500, 0, d + 1, 2026),   # observado jan..01/nov/2026
+        "2025": serie_constante(505, ano=2025),
+    }
+    r = analogia.calcular(doc_base(anos, "2026-11-01"), 10, "cm", horizonte_meses=2)
+    assert r["selecionados"] == [2025]                  # nov/2025-jan/2026: tudo observado
+    # com 12 meses o análogo 2025 precisaria de nov/2026, que ainda não existe
+    r12 = analogia.calcular(doc_base(anos, "2026-11-01"), 10, "cm", horizonte_meses=12)
+    assert r12["selecionados"] == []
+
+
+def test_horizonte_29fev_sem_data_analoga_nao_conta_na_cobertura():
+    """Janela até 29/02/2028 com análogo em ano não bissexto: 29/fev fica fora."""
+    anos = {
+        "2027": serie_constante(500, 0, analogia.indice_dia(11, 10) + 1, 2027),
+        "2001": serie_constante(500, ano=2001),
+        "2002": serie_constante(500, ano=2002),     # 2002 sem 29/fev
+    }
+    r = analogia.calcular(doc_base(anos, "2027-11-10"), 10, "cm", horizonte_meses=3)
+    c = next(c for c in r["candidatos"] if c["ano"] == 2001)
+    assert r["datas_proj"][-1] == "2028-02-29"
+    assert c["cobertura"] == 1.0 and c["selecionado"]
+
+
+def test_horizonte_padrao_preserva_regra_original():
+    """horizonte_meses=None e o horizonte que termina em 31/dez dão o mesmo resultado."""
+    anos = {"2026": serie_constante(500, 0, IDX_1JUL + 1, 2026)}
+    for ano, queda in (("2001", 50), ("2002", 20), ("2003", 80)):
+        s = serie_constante(500 - queda, ano=int(ano))
+        s[IDX_1JUL] = 500
+        anos[ano] = s
+    r_none = analogia.calcular(doc_base(anos), 10, "cm")
+    r_6 = analogia.calcular(doc_base(anos), 10, "cm", horizonte_meses=5)  # jul + 5 = dez
+    assert r_none["fim_horizonte"] == r_6["fim_horizonte"] == "2026-12-31"
+    assert r_none["selecionados"] == r_6["selecionados"]
+    assert r_none["trajetorias"]["media"] == r_6["trajetorias"]["media"]
+
+
+def _rodar_js(funcao: str, doc: dict, *args):
     script = (
         "const A = require(%s);"
         "const doc = JSON.parse(require('fs').readFileSync(0, 'utf8'));"
-        "console.log(JSON.stringify(A.rangeInicial(doc)));"
-    ) % json.dumps(str(RAIZ / "docs" / "js" / "analogia.js"))
+        "console.log(JSON.stringify(A.%s(doc, %s)));"
+    ) % (json.dumps(str(RAIZ / "docs" / "js" / "analogia.js")), funcao,
+         ", ".join(json.dumps(a) for a in args))
     out = subprocess.run(["node", "-e", script], input=json.dumps(doc),
                          capture_output=True, text=True, check=True, encoding="utf-8")
-    assert json.loads(out.stdout) == r_py
+    return json.loads(out.stdout)
+
+
+def _doc_real():
+    real = RAIZ / "docs" / "dados" / "belo-monte-montante.json"
+    return json.loads(real.read_text(encoding="utf-8")) if real.exists() else None
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node não disponível")
+def test_paridade_range_inicial():
+    doc = _doc_real()
+    if doc is None:
+        pytest.skip("belo-monte-montante.json ausente")
+    for h in (None, 3, 6, 12):
+        assert _rodar_js("rangeInicial", doc, 3, 50.0, h) == analogia.range_inicial(doc, 3, 50.0, h), h
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node não disponível")
 def test_paridade_python_js():
-    """Mesmo resultado no Python e no JS para dados reais e sintéticos."""
+    """Mesmo resultado no Python e no JS para dados reais e sintéticos, vários horizontes."""
     docs = []
-    real = RAIZ / "docs" / "dados" / "itaituba.json"
-    if real.exists():
-        docs.append(json.loads(real.read_text(encoding="utf-8")))
+    real = _doc_real()
+    if real is not None:
+        docs.append(real)
     anos = {"2026": serie_constante(500, 0, IDX_1JUL + 1, 2026)}
-    for ano in range(2000, 2020):
+    for ano in range(2000, 2021):
         s = serie_constante(495 + (ano % 7) * 3, ano=ano)
-        for i in range(IDX_1JUL, 366):
+        for i in range(366):
             if s[i] is not None:
-                s[i] -= (i - IDX_1JUL) * (ano % 5) * 0.2
+                s[i] -= ((i - IDX_1JUL) % 366) * (ano % 5) * 0.2
         if ano % 4 == 1:
             s[IDX_1JUL] = None  # força tolerância
+        if ano % 6 == 2:
+            for i in range(30, 45):
+                s[i] = None     # lacuna no início do ano: afeta janelas que cruzam o ano
         anos[str(ano)] = s
     docs.append(doc_base(anos))
 
-    for params in ((10, "cm"), (25, "cm"), (2, "pct")):
-        for doc in docs:
-            r_py = analogia.calcular(doc, *params)
-            script = (
-                "const A = require(%s);"
-                "const doc = JSON.parse(require('fs').readFileSync(0, 'utf8'));"
-                "console.log(JSON.stringify(A.calcular(doc, %s, %s)));"
-            ) % (
-                json.dumps(str(RAIZ / "docs" / "js" / "analogia.js")),
-                params[0], json.dumps(params[1]),
-            )
-            out = subprocess.run(
-                ["node", "-e", script], input=json.dumps(doc),
-                capture_output=True, text=True, check=True, encoding="utf-8",
-            )
-            r_js = json.loads(out.stdout)
-            assert r_js["selecionados"] == r_py["selecionados"], params
-            assert r_js["ano_maior_queda"] == r_py["ano_maior_queda"], params
-            assert r_js["ano_menor_queda"] == r_py["ano_menor_queda"], params
-            assert r_js["aviso"] == r_py["aviso"], params
-            if r_py["trajetorias"] is None:
-                assert r_js["trajetorias"] is None
-                continue
-            for chave in ("maior_queda", "menor_queda", "media"):
-                t_py = r_py["trajetorias"][chave]
-                t_js = r_js["trajetorias"][chave]
-                for i in range(366):
-                    a, b = t_py[i], t_js[i]
-                    if a is None or b is None:
-                        assert a == b, (params, chave, i)
-                    else:
-                        assert abs(a - b) < 1e-9, (params, chave, i)
+    for params in ((10, "cm"), (25, "cm"), (2, "pct"), (1000, "cm")):
+        for h in (None, 1, 6, 12):
+            for doc in docs:
+                r_py = analogia.calcular(doc, *params, h)
+                r_js = _rodar_js("calcular", doc, *params, h)
+                assert r_js["datas_proj"] == r_py["datas_proj"], (params, h)
+                assert r_js["fim_horizonte"] == r_py["fim_horizonte"], (params, h)
+                assert r_js["selecionados"] == r_py["selecionados"], (params, h)
+                assert r_js["ano_maior_queda"] == r_py["ano_maior_queda"], (params, h)
+                assert r_js["ano_menor_queda"] == r_py["ano_menor_queda"], (params, h)
+                assert r_js["aviso"] == r_py["aviso"], (params, h)
+                for cj, cp in zip(r_js["candidatos"], r_py["candidatos"]):
+                    assert cj["motivo"] == cp["motivo"], (params, h, cp["ano"])
+                if r_py["trajetorias"] is None:
+                    assert r_js["trajetorias"] is None
+                    continue
+                for chave in ("maior_queda", "menor_queda", "media"):
+                    t_py = r_py["trajetorias"][chave]
+                    t_js = r_js["trajetorias"][chave]
+                    assert len(t_py) == len(t_js), (params, h, chave)
+                    for i, (a, b) in enumerate(zip(t_py, t_js)):
+                        if a is None or b is None:
+                            assert a == b, (params, h, chave, i)
+                        else:
+                            assert abs(a - b) < 1e-9, (params, h, chave, i)

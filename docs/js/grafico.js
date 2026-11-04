@@ -18,6 +18,49 @@ const Grafico = (() => {
   };
   const MESES = ["jan", "fev", "mar", "abr", "mai", "jun",
                  "jul", "ago", "set", "out", "nov", "dez"];
+  const HORIZONTE_PADRAO = 6;   // meses inteiros projetados após o mês do último dado
+  const MESES_JANELA = 12;      // meses inteiros no gráfico, além do mês do último dado
+
+  // ---- janela do gráfico: datas em UTC, sem depender do fuso do navegador ----
+  const paraData = (iso) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d));
+  };
+  const paraISO = (dt) => dt.toISOString().slice(0, 10);
+
+  /** Datas ISO de `ini` a `fim`, inclusive. */
+  function datasEntre(ini, fim) {
+    const out = [];
+    for (let t = paraData(ini), f = paraData(fim); t <= f; t = new Date(t.getTime() + 864e5)) {
+      out.push(paraISO(t));
+    }
+    return out;
+  }
+
+  /** Valor da série integrada numa data ISO (null sem dado ou 29/fev inexistente). */
+  function valorEm(doc, iso) {
+    const y = Number(iso.slice(0, 4)), m = Number(iso.slice(5, 7)), d = Number(iso.slice(8, 10));
+    const serie = doc.anos[String(y)];
+    if (!serie || (m === 2 && d === 29 && !Analogia.bissexto(y))) return null;
+    const v = serie[Analogia.indiceDia(m, d)];
+    return v === null || v === undefined ? null : v;
+  }
+
+  /** Início do gráfico: dia 1 do mês que deixa MESES_JANELA meses inteiros na tela
+   * (observados + projetados), sem contar o mês do último dado. Sem horizonte
+   * (regra original), 1º de janeiro do ano corrente. */
+  function inicioJanela(r) {
+    if (r.horizonte_meses === null || r.horizonte_meses === undefined) return `${r.ano_atual}-01-01`;
+    const y = Number(r.dia_d.slice(0, 4)), m = Number(r.dia_d.slice(5, 7));
+    return paraISO(new Date(Date.UTC(y, m - 1 - (MESES_JANELA - r.horizonte_meses), 1)));
+  }
+
+  /** Datas da janela inteira do gráfico (início do mês até o fim do horizonte). */
+  function datasJanela(r) {
+    return datasEntre(inicioJanela(r), r.fim_horizonte);
+  }
+
+  const rotuloMes = (iso) => `${MESES[Number(iso.slice(5, 7)) - 1]}/${iso.slice(2, 4)}`;
 
   /** datas[i] = "YYYY-MM-DD" do índice i no ano dado (null p/ 29/fev inexistente). */
   function datasDoAno(ano) {
@@ -32,16 +75,10 @@ const Grafico = (() => {
     return datas;
   }
 
-  function traceAno(serie, datas, nome, cor, largura, visivelHover) {
-    const x = [], y = [];
-    for (let i = 0; i < 366; i++) {
-      if (datas[i] !== null) {
-        x.push(datas[i]);
-        y.push(serie[i] === undefined ? null : serie[i]);
-      }
-    }
+  /** Linha a partir de x (datas ISO) e y alinhados. */
+  function traceSerie(x, y, nome, cor, largura, visivelHover) {
     return {
-      x, y, name: nome, mode: "lines",
+      x, y: y.map((v) => (v === undefined ? null : v)), name: nome, mode: "lines",
       line: { color: cor, width: largura },
       hoverinfo: visivelHover ? undefined : "skip",
       hovertemplate: visivelHover ? `${nome}: %{y:.0f} ${UNIDADE}<extra></extra>` : undefined,
@@ -57,12 +94,12 @@ const Grafico = (() => {
     return v === null || v === undefined ? "" : v.toFixed(casas).replace(".", ",");
   }
 
-  /** Mínimo (valor, data) de uma trajetória a partir do dia D. */
-  function minimoTrajetoria(serie, datas, idxD) {
+  /** Mínimo (valor, data) de uma trajetória alinhada a r.datas_proj (de D ao fim do horizonte). */
+  function minimoTrajetoria(serie, datasProj) {
     let min = null, dataMin = null;
-    for (let i = idxD; i < 366; i++) {
-      if (datas[i] !== null && serie[i] !== null && serie[i] !== undefined) {
-        if (min === null || serie[i] < min) { min = serie[i]; dataMin = datas[i]; }
+    for (let k = 0; k < datasProj.length; k++) {
+      if (serie[k] !== null && serie[k] !== undefined) {
+        if (min === null || serie[k] < min) { min = serie[k]; dataMin = datasProj[k]; }
       }
     }
     return { min, dataMin };
@@ -100,15 +137,14 @@ const Grafico = (() => {
   function faixaY(doc, r) {
     let min = Infinity, max = -Infinity;
     const varre = (serie) => {
-      for (let i = 0; i < 366; i++) {
-        const v = serie[i];
+      for (const v of serie) {
         if (v !== null && v !== undefined) {
           if (v < min) min = v;
           if (v > max) max = v;
         }
       }
     };
-    varre(doc.anos[String(r.ano_atual)]);
+    varre(datasEntre(inicioJanela(r), r.dia_d).map((iso) => valorEm(doc, iso)));
     if (r.trajetorias) {
       Object.values(r.trajetorias.todas).forEach(varre);
       varre(r.trajetorias.maior_queda);
@@ -176,14 +212,14 @@ const Grafico = (() => {
   }
 
   function montarTraces(doc, r) {
-    const datas = datasDoAno(r.ano_atual);
+    const datasProj = r.datas_proj;
     const traces = [];
     const anotacoesMinimos = [];
 
     // trajetórias deslocadas dos anos análogos, apenas após o dia D (fundo)
     if (r.trajetorias) {
       for (const [ano, serie] of Object.entries(r.trajetorias.todas)) {
-        const t = traceAno(serie, datas, ano, CORES.anoAnalogo, 1, true);
+        const t = traceSerie(datasProj, serie, ano, CORES.anoAnalogo, 1, true);
         t.hovertemplate = `${ano} (análogo): %{y:.0f} ${UNIDADE}<extra></extra>`;
         traces.push(t);
       }
@@ -198,15 +234,17 @@ const Grafico = (() => {
         [tj.media, `Média (${r.selecionados.length} anos)`, CORES.media, "dot"],
       ];
       for (const [serie, nome, cor, traco] of proj) {
-        const t = traceAno(serie, datas, nome, cor, 2, true);
+        const t = traceSerie(datasProj, serie, nome, cor, 2, true);
         t.line.dash = traco;
         t.showlegend = true;
         traces.push(t);
       }
     }
 
-    const tObs = traceAno(doc.anos[String(r.ano_atual)], datas,
-                          `Observado ${r.ano_atual}`, CORES.observado, 2.5, true);
+    // observado: do início da janela (pode estar no ano anterior) até o último dado
+    const datasObs = datasEntre(inicioJanela(r), r.dia_d);
+    const tObs = traceSerie(datasObs, datasObs.map((iso) => valorEm(doc, iso)),
+                            "Observado", CORES.observado, 2.5, true);
     tObs.showlegend = true;
     traces.push(tObs);
 
@@ -221,7 +259,7 @@ const Grafico = (() => {
         [tj.menor_queda, CORES.menorQueda],
         [tj.media, CORES.media],
       ]) {
-        const { min, dataMin } = minimoTrajetoria(serie, datas, r.idx_d);
+        const { min, dataMin } = minimoTrajetoria(serie, datasProj);
         if (min !== null) minimos.push({ x: dataMin, y: min, cor });
       }
       const deslocamentos = posicionarRotulos(minimos, faixaY(doc, r));
@@ -240,7 +278,7 @@ const Grafico = (() => {
         });
       });
     }
-    return { traces, datas, anotacoesMinimos };
+    return { traces, anotacoesMinimos };
   }
 
   /** Linhas horizontais e rótulos dos pontos de controle (valores de referência definidos pelo usuário). */
@@ -277,14 +315,17 @@ const Grafico = (() => {
       plot_bgcolor: "rgba(0,0,0,0)",
       font: { family: "Segoe UI, system-ui, sans-serif", size: 12, color: "#555" },
       dragmode: false,   // sem zoom/pan por clique-e-arraste
-      xaxis: {
-        fixedrange: true,
-        tickvals: MESES.map((_, m) => `${r.ano_atual}-${String(m + 1).padStart(2, "0")}-01`),
-        ticktext: MESES,
-        hoverformat: "%d/%m",
-        gridcolor: "#efefec",
-        range: [`${r.ano_atual}-01-01`, `${r.ano_atual}-12-31`],
-      },
+      xaxis: (() => {
+        const ticks = datasJanela(r).filter((iso) => iso.endsWith("-01"));
+        return {
+          fixedrange: true,
+          tickvals: ticks,
+          ticktext: ticks.map(rotuloMes),
+          hoverformat: "%d/%m/%Y",
+          gridcolor: "#efefec",
+          range: [inicioJanela(r), r.fim_horizonte],
+        };
+      })(),
       yaxis: {
         fixedrange: true,
         title: { text: `${GRANDEZA} (${UNIDADE})`, font: { size: 12 } },
@@ -329,7 +370,8 @@ const Grafico = (() => {
     L.push(`Intervalo (${GRANDEZA.toLowerCase()} atual ±);${numeroBR(r.range_valor)} ${r.modo === "cm" ? UNIDADE : "%"};equivalente em ${UNIDADE};±${numeroBR(r.limite_cm)}`);
     if (r.pc1 !== null && r.pc1 !== undefined) L.push(`Ponto de controle 1 (${UNIDADE});${numeroBR(r.pc1, 0)}`);
     if (r.pc2 !== null && r.pc2 !== undefined) L.push(`Ponto de controle 2 (${UNIDADE});${numeroBR(r.pc2, 0)}`);
-    L.push(`Regras;tolerância ±3 dias no dia D;cobertura pós-D ≥80% e dado nos últimos 10 dias do ano`);
+    L.push(`Horizonte da projeção;${rotuloHorizonte(r)}`);
+    L.push(`Regras;tolerância ±3 dias no dia D;cobertura de D ao fim do horizonte ≥80% e dado nos últimos 10 dias do horizonte`);
     L.push("");
     L.push("BLOCO 1 — Anos candidatos (universo completo e seleção)");
     L.push(`ano;fonte_dos_dados;valor_em_D_${UNIDADE};dias_tolerancia;cobertura_pos_D_%;min_pos_D_${UNIDADE};delta_queda_${UNIDADE};selecionado;motivo_exclusao`);
@@ -347,26 +389,49 @@ const Grafico = (() => {
       ].join(";"));
     }
     L.push("");
-    L.push("BLOCO 2 — Séries do gráfico (dia a dia do ano corrente)");
+    L.push(`BLOCO 2 — Séries do gráfico (dia a dia, ${formatarDataBR(inicioJanela(r))} a ${formatarDataBR(r.fim_horizonte)})`);
     L.push(`data;observado_${UNIDADE};proj_maior_queda_${UNIDADE};proj_menor_queda_${UNIDADE};proj_media_${UNIDADE};interpolado`);
-    const datas = datasDoAno(r.ano_atual);
-    const obs = doc.anos[String(r.ano_atual)];
-    const tj = r.trajetorias;
-    for (let i = 0; i < 366; i++) {
-      if (datas[i] === null) continue;
-      const temProj = tj && i >= r.idx_d;
-      const interp = temProj && (tj.maior_queda_interp[i] || tj.menor_queda_interp[i]);
+    for (const l of linhasSerieDiaria(doc, r)) {
       const linha = [
-        formatarDataBR(datas[i]),
-        obs[i] === null || obs[i] === undefined ? "" : numeroBR(obs[i], 0),
-        temProj ? numeroBR(tj.maior_queda[i]) : "",
-        temProj ? numeroBR(tj.menor_queda[i]) : "",
-        temProj ? numeroBR(tj.media[i]) : "",
-        temProj && interp ? "sim" : "",
+        formatarDataBR(l.data),
+        l.obs === null ? "" : numeroBR(l.obs, 0),
+        l.temProj ? numeroBR(l.maior) : "",
+        l.temProj ? numeroBR(l.menor) : "",
+        l.temProj ? numeroBR(l.media) : "",
+        l.interp ? "sim" : "",
       ];
       if (linha.slice(1).some((v) => v !== "")) L.push(linha.join(";"));
     }
     return L.join("\r\n");
+  }
+
+  /** "6 meses (até 31/05/2027)" — ou a regra original, sem horizonte escolhido. */
+  function rotuloHorizonte(r) {
+    if (r.horizonte_meses === null || r.horizonte_meses === undefined) {
+      return `até ${formatarDataBR(r.fim_horizonte)}`;
+    }
+    const h = r.horizonte_meses;
+    return `${h} ${h === 1 ? "mês" : "meses"} (até ${formatarDataBR(r.fim_horizonte)})`;
+  }
+
+  /** Linhas dia a dia da janela do gráfico (usadas no CSV e na memória em PDF). */
+  function linhasSerieDiaria(doc, r) {
+    const tj = r.trajetorias;
+    const k0 = new Map(r.datas_proj.map((iso, k) => [iso, k]));
+    return datasJanela(r).map((iso) => {
+      const k = k0.has(iso) ? k0.get(iso) : null;
+      const temProj = !!tj && k !== null;
+      const val = (serie) => (serie[k] === undefined ? null : serie[k]);
+      return {
+        data: iso,
+        obs: iso <= r.dia_d ? valorEm(doc, iso) : null,
+        temProj,
+        maior: temProj ? val(tj.maior_queda) : null,
+        menor: temProj ? val(tj.menor_queda) : null,
+        media: temProj ? val(tj.media) : null,
+        interp: temProj && (tj.maior_queda_interp[k] || tj.menor_queda_interp[k]),
+      };
+    });
   }
 
   function baixarCSV(nomeArquivo, conteudo) {
@@ -410,6 +475,13 @@ const Grafico = (() => {
         </span>
       </div>
       <div class="controles-referencia">
+        <label title="Meses inteiros projetados após o mês do último dado. O gráfico mostra 12 meses inteiros: os demais são os meses observados mais recentes.">
+          Horizonte da projeção
+          <select class="ctl-horizonte">
+            ${Array.from({ length: 12 }, (_, i) => i + 1).map((h) =>
+              `<option value="${h}"${h === HORIZONTE_PADRAO ? " selected" : ""}>${h} ${h === 1 ? "mês" : "meses"}</option>`).join("")}
+          </select>
+          <span class="ctl-fim-horizonte"></span></label>
         <label title="Linha horizontal de referência desenhada no gráfico.">
           ${GRANDEZA} do Ponto de controle 1
           <input type="number" step="1" class="ctl-pc1" placeholder="${UNIDADE}">
@@ -437,22 +509,29 @@ const Grafico = (() => {
       csv: sec.querySelector(".botao-sec"),
       pc1: sec.querySelector(".ctl-pc1"),
       pc2: sec.querySelector(".ctl-pc2"),
+      horizonte: sec.querySelector(".ctl-horizonte"),
+      fimHorizonte: sec.querySelector(".ctl-fim-horizonte"),
     };
-    // intervalo inicial: o menor (≥50 cm) que contém pelo menos 3 anos análogos
-    const rangeAuto = Analogia.rangeInicial(doc);
-    const estado = { range: rangeAuto, modo: "cm", resultado: null, pc1: null, pc2: null };
+    // intervalo inicial: o menor (≥50 cm) que contém pelo menos 3 anos análogos,
+    // calculado para o horizonte padrão (ao trocar o horizonte, o intervalo é mantido)
+    const rangeAuto = Analogia.rangeInicial(doc, Analogia.MIN_ANALOGOS, 50.0, HORIZONTE_PADRAO);
+    const estado = { range: rangeAuto, modo: "cm", resultado: null, pc1: null, pc2: null,
+                     horizonte: HORIZONTE_PADRAO };
     if (rangeAuto > 500) el.slider.max = String(Math.ceil(rangeAuto * 2));
     el.slider.value = String(rangeAuto);
     el.num.value = String(rangeAuto);
 
+    const calcularAtual = () => Analogia.calcular(doc, estado.range, estado.modo, estado.horizonte);
+
     function render() {
-      const r = Analogia.calcular(doc, estado.range, estado.modo);
+      const r = calcularAtual();
       estado.resultado = r;
       const { traces, anotacoesMinimos } = montarTraces(doc, r);
       const layout = layoutBase(doc, r, { pc1: estado.pc1, pc2: estado.pc2 });
       layout.annotations = layout.annotations.concat(anotacoesMinimos);
       Plotly.react(el.grafico, traces, layout, CONFIG);
       el.contagem.textContent = String(r.selecionados.length);
+      el.fimHorizonte.textContent = `até ${formatarDataBR(r.fim_horizonte)}`;
       el.aviso.textContent = r.aviso || "";
       el.rodape.textContent = r.selecionados.length
         ? `Anos análogos (${GRANDEZA.toLowerCase()} em ${formatarDataBR(r.dia_d).slice(0, 5)} dentro de ±${numeroBR(r.limite_cm)} ${UNIDADE} da atual): ${r.selecionados.join(", ")}.`
@@ -480,7 +559,7 @@ const Grafico = (() => {
     function trocarModo(modo) {
       if (modo === estado.modo) return;
       // mantém o range equivalente ao trocar de unidade (cm <-> % da cota atual)
-      const r = estado.resultado || Analogia.calcular(doc, estado.range, estado.modo);
+      const r = estado.resultado || calcularAtual();
       const cota = Math.abs(r.cota_atual) || 1;
       const novo = modo === "pct"
         ? Math.round((estado.range / cota) * 1000) / 10   // cm -> %, 1 casa decimal
@@ -513,9 +592,13 @@ const Grafico = (() => {
       estado.pc2 = lerPontoControle(el.pc2);
       agendarRender();
     });
+    el.horizonte.addEventListener("change", () => {
+      estado.horizonte = Number(el.horizonte.value);
+      render();
+    });
 
     function resultadoComPontosControle() {
-      const r = estado.resultado || Analogia.calcular(doc, estado.range, estado.modo);
+      const r = estado.resultado || calcularAtual();
       return { ...r, pc1: estado.pc1, pc2: estado.pc2 };
     }
     sec.querySelector(".botao-memoria").addEventListener("click", () => {
@@ -523,19 +606,20 @@ const Grafico = (() => {
     });
     el.csv.addEventListener("click", () => {
       const r = resultadoComPontosControle();
-      baixarCSV(`analogia_${doc.slug}_${doc.ultima_data}.csv`, gerarCSV(doc, r));
+      baixarCSV(`analogia_${doc.slug}_${doc.ultima_data}_${estado.horizonte}m.csv`, gerarCSV(doc, r));
     });
 
     REGISTRO.set(doc.slug, {
       doc,
       grafico: el.grafico,
       get resultado() {
-        return estado.resultado || Analogia.calcular(doc, estado.range, estado.modo);
+        return estado.resultado || calcularAtual();
       },
     });
 
     render();
   }
 
-  return { montarSecao, datasDoAno, minimoTrajetoria, registro: REGISTRO };
+  return { montarSecao, datasDoAno, minimoTrajetoria, linhasSerieDiaria, rotuloHorizonte,
+           inicioJanela, registro: REGISTRO };
 })();

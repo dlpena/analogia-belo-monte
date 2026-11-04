@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Projeções de Vazão — UHE Belo Monte Montante</title>
-  <link rel="stylesheet" href="css/estilo.css?v=4">
+  <link rel="stylesheet" href="css/estilo.css?v=5">
   <script src="vendor/plotly.min.js"></script>
 </head>
 <body>
@@ -34,7 +34,7 @@
     <div class="ajuda-corpo">
       <h3>A ideia em uma frase</h3>
       <p>Olhamos como a vazão do rio se comportou, <strong>em anos passados parecidos com o atual</strong>,
-      daqui até o fim do ano — e mostramos o pior caso, o melhor caso e o caso médio.</p>
+      daqui até o fim do horizonte escolhido, e mostramos o pior caso, o melhor caso e o caso médio.</p>
 
       <h3>Passo a passo</h3>
       <ol>
@@ -47,7 +47,7 @@
         por exemplo, ±50 m³/s quer dizer até 50 m³/s acima ou abaixo da vazão atual. Esses são os
         <strong>anos análogos</strong> (listados abaixo de cada gráfico).</li>
         <li><strong>Ver o que aconteceu depois.</strong> Para cada ano análogo, pegamos a
-        trajetória da vazão daquele dia até 31/dez e medimos a queda até o mínimo. Essas
+        trajetória da vazão daquele dia até o fim do horizonte e medimos a queda até o mínimo. Essas
         trajetórias aparecem em cinza-claro, deslocadas para começar exatamente na vazão atual
         — assim todas partem do mesmo ponto e ficam comparáveis.</li>
         <li><strong>As três curvas.</strong>
@@ -59,6 +59,16 @@
           dia, de todos os anos análogos. Os pontos coloridos marcam o mínimo de cada curva,
           com o valor em m³/s.</li>
       </ol>
+
+      <h3>O horizonte da projeção</h3>
+      <p>O seletor <strong>Horizonte da projeção</strong> define quantos meses inteiros são
+      projetados depois do mês do último dado, de 1 a 12 (padrão: 6). O mês do último dado não
+      entra na conta. O gráfico mostra sempre 12 meses inteiros, a partir do dia 1: com horizonte
+      de 6 meses, aparecem 6 meses observados, o mês corrente até o último dado e 6 meses
+      projetados. Quando o horizonte atravessa a virada do ano, cada ano análogo continua no ano
+      seguinte a ele. O ano análogo cujo ano seguinte ainda não tem dados até o fim do horizonte
+      sai do universo, com o motivo registrado na memória de cálculo; por isso horizontes longos
+      podem reduzir o número de anos análogos.</p>
 
       <h3>O Intervalo — e por que ele importa</h3>
       <p>Intervalo pequeno = anos muito parecidos com o atual, porém poucos; intervalo grande =
@@ -73,7 +83,8 @@
         <li>Se um ano não tem medição exatamente naquele dia, usamos o dado mais próximo em até
         3 dias.</li>
         <li>Anos com muitas falhas depois do dia de referência ficam de fora: exigimos pelo
-        menos 80% dos dias com dado até 31/dez e alguma medição nos últimos 10 dias do ano.</li>
+        menos 80% dos dias com dado até o fim do horizonte e alguma medição nos últimos 10 dias
+        do horizonte.</li>
         <li>Cada dia usa a melhor fonte disponível: dado consistido do HIDRO &gt; dado bruto &gt;
         telemetria. Esta estação não possui dados no HIDRO — a série é 100% telemetria
         (desde 2013).</li>
@@ -110,8 +121,9 @@
     <p>Metodologia: a partir do último dado do ano corrente (dia D), são selecionados os anos
     históricos cuja vazão no mesmo dia/mês está dentro do intervalo escolhido em torno da
     vazão atual (tolerância de ±3 dias quando falta o dado exato; exige-se ≥80% de cobertura
-    entre D e 31/dez e dado nos últimos 10 dias do ano). As trajetórias projetadas são as dos
-    anos de maior e menor queda até 31/dez e a média de todos os análogos, deslocadas para
+    entre D e o fim do horizonte e dado nos últimos 10 dias do horizonte). As trajetórias
+    projetadas são as dos anos de maior e menor queda até o fim do horizonte escolhido (1 a 12
+    meses inteiros após o mês do último dado) e a média de todos os análogos, deslocadas para
     coincidir com a vazão atual no dia D. O intervalo inicial é o menor (≥50 m³/s) que contém
     pelo menos 3 anos análogos. A estação 18821000 não possui dados no banco HIDRO — a série
     é composta integralmente pela telemetria, disponível desde 2013. Valores não positivos e
@@ -123,10 +135,10 @@
 
   <script src="vendor/jspdf.umd.min.js"></script>
   <script src="vendor/jspdf.plugin.autotable.min.js"></script>
-  <script src="js/analogia.js?v=7"></script>
-  <script src="js/grafico.js?v=7"></script>
-  <script src="js/graficos_extras.js?v=7"></script>
-  <script src="js/exportar_pdf.js?v=7"></script>
-  <script src="js/principal.js?v=7"></script>
+  <script src="js/analogia.js?v=8"></script>
+  <script src="js/grafico.js?v=8"></script>
+  <script src="js/graficos_extras.js?v=8"></script>
+  <script src="js/exportar_pdf.js?v=8"></script>
+  <script src="js/principal.js?v=8"></script>
 </body>
 </html>
