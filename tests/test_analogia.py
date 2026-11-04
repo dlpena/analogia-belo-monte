@@ -1,6 +1,7 @@
 """Testes do algoritmo de analogia: casos sintéticos + paridade Python <-> JS."""
 
 import json
+import math
 import shutil
 import subprocess
 import sys
@@ -30,9 +31,12 @@ IDX_1JUL = analogia.indice_dia(7, 1)  # 182
 
 
 def test_selecao_basica_e_deltas():
-    """3 anos análogos: quedas de 50, 20 e 80 cm a partir de 1/jul."""
+    """3 anos análogos: quedas de 50, 20 e 80 cm a partir de 1/jul.
+
+    Anos não consecutivos: o ciclo de cada um (D-182 a D+182) não alcança o degrau
+    do vizinho, e o mínimo de todos fica logo depois de D (regime de descida)."""
     anos = {"2026": serie_constante(500, 0, IDX_1JUL + 1, 2026)}
-    for ano, queda in (("2001", 50), ("2002", 20), ("2003", 80)):
+    for ano, queda in (("2001", 50), ("2003", 20), ("2005", 80)):
         s = serie_constante(500, ano=int(ano))
         for i in range(IDX_1JUL, 366):
             if s[i] is not None:
@@ -40,11 +44,12 @@ def test_selecao_basica_e_deltas():
         s[IDX_1JUL] = 500
         anos[ano] = s
     r = analogia.calcular(doc_base(anos), 10, "cm")
-    assert r["selecionados"] == [2001, 2002, 2003]
-    assert r["ano_maior_queda"] == 2003
-    assert r["ano_menor_queda"] == 2002
+    assert r["selecionados"] == [2001, 2003, 2005]
+    assert r["regime"] == "descida"
+    assert r["ano_inferior"] == 2005 and r["criterio_inferior"] == "maior_queda"
+    assert r["ano_superior"] == 2003 and r["criterio_superior"] == "menor_queda"
     deltas = {c["ano"]: c["delta"] for c in r["candidatos"]}
-    assert deltas == {2001: 50, 2002: 20, 2003: 80}
+    assert deltas == {2001: 50, 2003: 20, 2005: 80}
     assert r["aviso"] is None
 
 
@@ -128,13 +133,13 @@ def test_trajetoria_deslocada_e_interpolada():
     s[IDX_1JUL + 5] = None  # lacuna interna
     anos = {"2026": serie_constante(500, 0, IDX_1JUL + 1, 2026), "2001": s}
     r = analogia.calcular(doc_base(anos), 10, "cm")
-    traj = r["trajetorias"]["maior_queda"]
+    traj = r["trajetorias"]["inferior"]
     # trajetórias alinhadas a datas_proj: posição 0 = dia D, última = 31/dez
     assert r["datas_proj"][0] == "2026-07-01" and r["datas_proj"][-1] == "2026-12-31"
     assert len(traj) == len(r["datas_proj"]) == 184
     assert traj[0] == 500  # começa na cota atual (offset +10)
     assert traj[5] == 500  # interpolado entre vizinhos 500
-    assert r["trajetorias"]["maior_queda_interp"][5] is True
+    assert r["trajetorias"]["inferior_interp"][5] is True
 
 
 def test_aviso_poucos_analogos():
@@ -210,7 +215,7 @@ def test_horizonte_atravessa_o_ano_usa_ano_seguinte_do_analogo():
     assert m[2001]["delta"] == 200                  # 500 em D, mínimo 300 em jan/2002
     assert m[2003]["motivo"] == "série incompleta pós-D"
     k_15jan = r["datas_proj"].index("2027-01-15")
-    assert r["trajetorias"]["maior_queda"][k_15jan] == 300
+    assert r["trajetorias"]["inferior"][k_15jan] == 300
 
 
 def test_horizonte_ano_anterior_usa_observado_do_ano_corrente():
@@ -252,6 +257,81 @@ def test_horizonte_padrao_preserva_regra_original():
     assert r_none["fim_horizonte"] == r_6["fim_horizonte"] == "2026-12-31"
     assert r_none["selecionados"] == r_6["selecionados"]
     assert r_none["trajetorias"]["media"] == r_6["trajetorias"]["media"]
+
+
+# ------------------------------ regime: descida ou subida ------------------------------
+
+def senoide(ano, idx_min, amp=100.0, base=500.0):
+    """Ciclo anual com mínimo no índice idx_min (período de 365 dias)."""
+    s = [None] * 366
+    for i in range(366):
+        if i != analogia.IDX_29FEV or analogia.bissexto(ano):
+            s[i] = base - amp * math.cos(2 * math.pi * (i - idx_min) / 365)
+    return s
+
+
+def doc_ciclos(desloc_min_por_ano: dict, ultima_data="2026-07-01"):
+    """Anos 1990-2025 com mínimo deslocado em relação a D; 2026 observado até D."""
+    d = analogia.indice_dia(int(ultima_data[5:7]), int(ultima_data[8:10]))
+    anos = {}
+    for ano in range(1990, 2026):
+        anos[str(ano)] = senoide(ano, d + desloc_min_por_ano.get(ano, 0))
+    s26 = senoide(2026, d)
+    for i in range(d + 1, 366):
+        s26[i] = None
+    anos["2026"] = s26
+    return doc_base(anos, ultima_data)
+
+
+def _desloc(base, espalhamento):
+    return {ano: base + ((ano % 5) - 2) * espalhamento for ano in range(1990, 2026)}
+
+
+def test_regime_descida_quando_o_minimo_medio_esta_a_frente():
+    r = analogia.calcular(doc_ciclos(_desloc(60, 4)), 1000, "cm")
+    assert r["regime"] == "descida"
+    assert 55 < r["ciclo"]["media_min"] < 65
+    assert r["criterio_inferior"] == "maior_queda" and r["criterio_superior"] == "menor_queda"
+    queda = {c["ano"]: c["delta"] for c in r["candidatos"] if c["selecionado"]}
+    assert queda[r["ano_inferior"]] == max(queda.values())
+    assert queda[r["ano_superior"]] == min(queda.values())
+
+
+def test_regime_subida_quando_o_minimo_medio_ja_passou():
+    r = analogia.calcular(doc_ciclos(_desloc(-60, 4)), 1000, "cm")
+    assert r["regime"] == "subida"
+    assert -65 < r["ciclo"]["media_min"] < -55
+    assert r["criterio_inferior"] == "menor_subida" and r["criterio_superior"] == "maior_subida"
+    sub = {c["ano"]: c["subida"] for c in r["candidatos"] if c["selecionado"]}
+    assert sub[r["ano_inferior"]] == min(sub.values())
+    assert sub[r["ano_superior"]] == max(sub.values())
+
+
+def test_regime_na_borda_do_minimo_medio_tem_criterio_unico():
+    """Mínimo médio logo depois de D: descida; logo antes: subida, mesmo com análogos
+    espalhados (alguns ainda descem). As duas curvas são sempre do mesmo tipo."""
+    r_antes = analogia.calcular(doc_ciclos(_desloc(3, 10)), 1000, "cm")
+    r_depois = analogia.calcular(doc_ciclos(_desloc(-3, 10)), 1000, "cm")
+    assert r_antes["regime"] == "descida"
+    assert (r_antes["criterio_inferior"], r_antes["criterio_superior"]) == ("maior_queda", "menor_queda")
+    assert r_depois["regime"] == "subida"
+    assert (r_depois["criterio_inferior"], r_depois["criterio_superior"]) == ("menor_subida", "maior_subida")
+
+
+def test_media_circular_atravessa_a_borda_do_ciclo():
+    """Dias -180 e +180 ficam a 5 dias um do outro no ciclo: média perto de ±182."""
+    m, dp = analogia._media_circular([-180, 180])
+    assert abs(abs(m) - 182.5) < 0.01 and dp < 5
+
+
+def test_sem_ciclo_completo_usa_descida():
+    """Análogos sem 70% do ciclo com dado: regime padrão (descida)."""
+    anos = {"2026": serie_constante(500, 0, IDX_1JUL + 1, 2026),
+            "2001": serie_constante(490, IDX_1JUL - 3, 366, 2001)}
+    r = analogia.calcular(doc_base(anos), 20, "cm")
+    c = next(c for c in r["candidatos"] if c["ano"] == 2001)
+    assert c["selecionado"] and c["dia_min_ciclo"] is None
+    assert r["regime"] == "descida" and r["ciclo"] is None
 
 
 def _rodar_js(funcao: str, doc: dict, *args):
@@ -309,15 +389,24 @@ def test_paridade_python_js():
                 assert r_js["datas_proj"] == r_py["datas_proj"], (params, h)
                 assert r_js["fim_horizonte"] == r_py["fim_horizonte"], (params, h)
                 assert r_js["selecionados"] == r_py["selecionados"], (params, h)
-                assert r_js["ano_maior_queda"] == r_py["ano_maior_queda"], (params, h)
-                assert r_js["ano_menor_queda"] == r_py["ano_menor_queda"], (params, h)
-                assert r_js["aviso"] == r_py["aviso"], (params, h)
+                for chave in ("regime", "ano_inferior", "criterio_inferior",
+                              "ano_superior", "criterio_superior", "aviso"):
+                    assert r_js[chave] == r_py[chave], (params, h, chave)
+                if r_py["ciclo"] is None:
+                    assert r_js["ciclo"] is None
+                else:
+                    for chave, v in r_py["ciclo"].items():
+                        if isinstance(v, float):
+                            assert abs(r_js["ciclo"][chave] - v) < 1e-9, (params, h, chave)
+                        else:
+                            assert r_js["ciclo"][chave] == v, (params, h, chave)
                 for cj, cp in zip(r_js["candidatos"], r_py["candidatos"]):
-                    assert cj["motivo"] == cp["motivo"], (params, h, cp["ano"])
+                    for chave in ("motivo", "dia_min_ciclo", "dia_max_ciclo", "delta", "subida"):
+                        assert cj[chave] == cp[chave], (params, h, cp["ano"], chave)
                 if r_py["trajetorias"] is None:
                     assert r_js["trajetorias"] is None
                     continue
-                for chave in ("maior_queda", "menor_queda", "media"):
+                for chave in ("inferior", "superior", "media"):
                     t_py = r_py["trajetorias"][chave]
                     t_js = r_js["trajetorias"][chave]
                     assert len(t_py) == len(t_js), (params, h, chave)

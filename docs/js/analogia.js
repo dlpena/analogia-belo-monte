@@ -9,6 +9,9 @@ const Analogia = (() => {
   const COBERTURA_MINIMA = 0.8;
   const DIAS_FIM_JANELA = 10;
   const MIN_ANALOGOS = 3;
+  const CICLO_MEIO_DIAS = 182;           // ciclo de 365 dias centrado em D
+  const CICLO_COBERTURA_MINIMA = 0.7;
+  const PERIODO_CICLO = 365;
 
   const OFFSETS_MES = [0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335];
   const IDX_29FEV = 59;
@@ -57,6 +60,58 @@ const Analogia = (() => {
       }
     }
     return [null, null];
+  }
+
+  /** Dias (relativos a D) do mínimo e do máximo do análogo no ciclo centrado em D.
+   * Empate -> o primeiro. Menos de 70% de dias com dado -> [null, null]. */
+  function extremosCiclo(anos, d0, desloc) {
+    const vals = [];
+    for (let k = -CICLO_MEIO_DIAS; k <= CICLO_MEIO_DIAS; k++) {
+      const v = valor(anos, dataAnaloga(somaDias(d0, k), desloc));
+      if (v !== null) vals.push([k, v]);
+    }
+    if (vals.length < CICLO_COBERTURA_MINIMA * (2 * CICLO_MEIO_DIAS + 1)) return [null, null];
+    let [kMin, vMin] = vals[0];
+    let [kMax, vMax] = vals[0];
+    for (let i = 1; i < vals.length; i++) {
+      const [k, v] = vals[i];
+      if (v < vMin) { kMin = k; vMin = v; }
+      if (v > vMax) { kMax = k; vMax = v; }
+    }
+    return [kMin, kMax];
+  }
+
+  /** Média e desvio-padrão circulares (em dias) num ciclo de 365 dias. */
+  function mediaCircular(dias) {
+    const w = (2 * Math.PI) / PERIODO_CICLO;
+    let s = 0.0, c = 0.0;
+    for (const d of dias) {
+      s += Math.sin(w * d);
+      c += Math.cos(w * d);
+    }
+    s /= dias.length;
+    c /= dias.length;
+    const r = Math.min(Math.hypot(s, c), 1.0);
+    const media = Math.atan2(s, c) / w;
+    let desvio;
+    if (r >= 1.0 - 1e-12) desvio = 0.0;           // ruído de arredondamento: análogos concordam
+    else if (r > 1e-12) desvio = Math.sqrt(-2.0 * Math.log(r)) / w;
+    else desvio = Infinity;
+    return [media, desvio];
+  }
+
+  /* Comparação lexicográfica de chaves [a, b]: true se x > y. */
+  const maiorChave = (x, y) => x[0] > y[0] || (x[0] === y[0] && x[1] > y[1]);
+  /* max/min por chave; empate -> o primeiro (ano mais antigo), como max()/min() do Python. */
+  function maxPor(lista, chave) {
+    let m = lista[0];
+    for (const c of lista) if (maiorChave(chave(c), chave(m))) m = c;
+    return m;
+  }
+  function minPor(lista, chave) {
+    let m = lista[0];
+    for (const c of lista) if (maiorChave(chave(m), chave(c))) m = c;
+    return m;
   }
 
   function interpolar(valores) {
@@ -116,7 +171,9 @@ const Analogia = (() => {
       const desloc = ano - anoAtual;
       const cand = {
         ano, cota_em_d: null, dias_tolerancia: null, cobertura: null,
-        min_pos_d: null, delta: null, selecionado: false, motivo: null,
+        min_pos_d: null, delta: null, max_pos_d: null, subida: null,
+        dia_min_ciclo: null, dia_max_ciclo: null,
+        selecionado: false, motivo: null,
       };
       const [cotaD, desvio] = cotaEmD(anos, d0, desloc);
       if (cotaD === null) {
@@ -135,8 +192,11 @@ const Analogia = (() => {
       cand.cobertura = pos.length ? comDado.length / pos.length : 0.0;
       if (comDado.length) {
         const minimo = Math.min(...comDado.map((k) => valores[k]));
+        const maximo = Math.max(...comDado.map((k) => valores[k]));
         cand.min_pos_d = minimo;
         cand.delta = cotaD - minimo;
+        cand.max_pos_d = maximo;
+        cand.subida = maximo - cotaD;
       }
 
       if (Math.abs(cotaD - cotaAtual) > limite) {
@@ -153,6 +213,7 @@ const Analogia = (() => {
       }
 
       cand.selecionado = true;
+      [cand.dia_min_ciclo, cand.dia_max_ciclo] = extremosCiclo(anos, d0, desloc);
       candidatos.push(cand);
       janelas.set(ano, valores);
     }
@@ -172,8 +233,12 @@ const Analogia = (() => {
       datas_proj: datas.map(paraISO),
       candidatos,
       selecionados: selecionados.map((c) => c.ano),
-      ano_maior_queda: null,
-      ano_menor_queda: null,
+      regime: null,
+      ciclo: null,
+      ano_inferior: null,
+      criterio_inferior: null,
+      ano_superior: null,
+      criterio_superior: null,
       trajetorias: null,
       aviso: null,
     };
@@ -185,13 +250,38 @@ const Analogia = (() => {
       resultado.aviso = `Apenas ${selecionados.length} ano(s) análogo(s) — amplie o intervalo.`;
     }
 
-    let maior = selecionados[0], menor = selecionados[0];
-    for (const c of selecionados) {
-      if (c.delta > maior.delta) maior = c;
-      if (c.delta < menor.delta) menor = c;
+    // regime pelo conjunto: data média do mínimo e do máximo dos ciclos
+    const ciclos = selecionados.filter((c) => c.dia_min_ciclo !== null);
+    let regime = "descida";
+    if (ciclos.length) {
+      const [mMin, dpMin] = mediaCircular(ciclos.map((c) => c.dia_min_ciclo));
+      const [mMax, dpMax] = mediaCircular(ciclos.map((c) => c.dia_max_ciclo));
+      const proximo = (m) => (m > 0 ? m : m + PERIODO_CICLO);
+      regime = proximo(mMin) < proximo(mMax) ? "descida" : "subida";
+      resultado.ciclo = {
+        n: ciclos.length,
+        media_min: mMin, desvio_min: dpMin,
+        data_media_min: paraISO(somaDias(d0, Math.round(mMin))),
+        media_max: mMax, desvio_max: dpMax,
+        data_media_max: paraISO(somaDias(d0, Math.round(mMax))),
+      };
     }
-    resultado.ano_maior_queda = maior.ano;
-    resultado.ano_menor_queda = menor.ano;
+
+    const chaveQueda = (c) => [c.delta, -c.subida];
+    const chaveSubida = (c) => [c.subida, -c.delta];
+    let inferior, superior, critInf, critSup;
+    if (regime === "descida") {
+      inferior = maxPor(selecionados, chaveQueda); critInf = "maior_queda";
+      superior = minPor(selecionados, chaveQueda); critSup = "menor_queda";
+    } else {
+      inferior = minPor(selecionados, chaveSubida); critInf = "menor_subida";
+      superior = maxPor(selecionados, chaveSubida); critSup = "maior_subida";
+    }
+    resultado.regime = regime;
+    resultado.ano_inferior = inferior.ano;
+    resultado.criterio_inferior = critInf;
+    resultado.ano_superior = superior.ano;
+    resultado.criterio_superior = critSup;
 
     const porAno = new Map();
     for (const c of selecionados) {
@@ -213,10 +303,10 @@ const Analogia = (() => {
     for (const [a, [cheia]] of porAno.entries()) todas[String(a)] = cheia;
 
     resultado.trajetorias = {
-      maior_queda: porAno.get(maior.ano)[0],
-      maior_queda_interp: porAno.get(maior.ano)[1],
-      menor_queda: porAno.get(menor.ano)[0],
-      menor_queda_interp: porAno.get(menor.ano)[1],
+      inferior: porAno.get(inferior.ano)[0],
+      inferior_interp: porAno.get(inferior.ano)[1],
+      superior: porAno.get(superior.ano)[0],
+      superior_interp: porAno.get(superior.ano)[1],
       media,
       todas,
     };

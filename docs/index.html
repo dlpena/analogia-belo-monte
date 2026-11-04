@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Projeções de Vazão — UHE Belo Monte Montante</title>
-  <link rel="stylesheet" href="css/estilo.css?v=6">
+  <link rel="stylesheet" href="css/estilo.css?v=8">
   <script src="vendor/plotly.min.js"></script>
 </head>
 <body>
@@ -17,6 +17,7 @@
       <nav id="nav-estacoes" class="nav-estacoes"></nav>
       <div class="topo-meta">
         <span id="carimbo">Carregando…</span>
+        <a href="metodologia.html" class="link-secundario">Metodologia</a>
         <button id="btn-ajuda" type="button" title="Como as projeções são calculadas">Como funciona?</button>
         <button id="btn-pdf-conjunto" type="button" disabled
                 title="PDF com o gráfico exatamente como está na tela (intervalos ajustados)">Baixar PDF do conjunto</button>
@@ -34,7 +35,7 @@
     <div class="ajuda-corpo">
       <h3>A ideia em uma frase</h3>
       <p>Olhamos como a vazão do rio se comportou, <strong>em anos passados parecidos com o atual</strong>,
-      daqui até o fim do horizonte escolhido, e mostramos o pior caso, o melhor caso e o caso médio.</p>
+      daqui até o fim do horizonte escolhido, e mostramos o caso mais baixo, o mais alto e o médio.</p>
 
       <h3>Passo a passo</h3>
       <ol>
@@ -43,22 +44,27 @@
         pontilhada).</li>
         <li><strong>Procurar anos parecidos.</strong> Voltamos ao histórico e perguntamos: em
         que anos, <em>neste mesmo dia do calendário</em>, o rio estava com vazão próxima da
-        atual? "Próxima" significa dentro do <strong>Intervalo</strong> que você controla —
-        por exemplo, ±50 m³/s quer dizer até 50 m³/s acima ou abaixo da vazão atual. Esses são os
+        atual? "Próxima" significa dentro do <strong>Intervalo</strong> que você controla.
+        Por exemplo, ±50 m³/s quer dizer até 50 m³/s acima ou abaixo da vazão atual. Esses são os
         <strong>anos análogos</strong> (listados abaixo de cada gráfico).</li>
         <li><strong>Ver o que aconteceu depois.</strong> Para cada ano análogo, pegamos a
-        trajetória da vazão daquele dia até o fim do horizonte e medimos a queda até o mínimo. Essas
-        trajetórias aparecem em cinza-claro, deslocadas para começar exatamente na vazão atual
-        — assim todas partem do mesmo ponto e ficam comparáveis.</li>
-        <li><strong>As três curvas.</strong>
-          <span class="cor-maior">■</span> <strong>Maior queda</strong>: o ano análogo em que o
-          rio mais desceu (cenário mais severo).
-          <span class="cor-menor">■</span> <strong>Menor queda</strong>: o ano em que menos
-          desceu (cenário mais favorável).
+        trajetória da vazão daquele dia até o fim do horizonte e medimos a queda até o mínimo e a
+        subida até o máximo. Essas trajetórias aparecem em cinza-claro, deslocadas para começar
+        exatamente na vazão atual, para que todas partam do mesmo ponto e fiquem comparáveis.</li>
+        <li><strong>Descida ou subida.</strong> Pelas datas médias do mínimo e do máximo dos anos
+        análogos, o painel decide se o conjunto ainda desce rumo ao mínimo ou já sobe rumo ao
+        máximo. O regime aparece escrito acima do gráfico.</li>
+        <li><strong>As três curvas.</strong> Na descida,
+          <span class="cor-maior">■</span> <strong>Maior queda</strong> (cenário mais severo) e
+          <span class="cor-menor">■</span> <strong>Menor queda</strong> (mais favorável). Na subida,
+          <span class="cor-maior">■</span> <strong>Menor subida</strong> e
+          <span class="cor-menor">■</span> <strong>Maior subida</strong>.
           <span class="cor-media">■</span> <strong>Média</strong> (pontilhada): a média, dia a
-          dia, de todos os anos análogos. Os pontos coloridos marcam o mínimo de cada curva,
-          com o valor em m³/s.</li>
+          dia, de todos os anos análogos. Os pontos coloridos marcam o mínimo de cada curva na
+          descida e o máximo na subida, com o valor em m³/s.</li>
       </ol>
+      <p>A <a href="metodologia.html" class="link-secundario">página de metodologia</a> explica
+      cada passo com figuras.</p>
 
       <h3>O horizonte da projeção</h3>
       <p>Por padrão, o gráfico mostra o ano civil (jan–dez) e a projeção vai até 31/dez. O
@@ -71,11 +77,11 @@
       sai do universo, com o motivo registrado na memória de cálculo; por isso horizontes longos
       podem reduzir o número de anos análogos.</p>
 
-      <h3>O Intervalo — e por que ele importa</h3>
+      <h3>O Intervalo e por que ele importa</h3>
       <p>Intervalo pequeno = anos muito parecidos com o atual, porém poucos; intervalo grande =
       mais anos, porém menos parecidos. O gráfico abre com o menor intervalo (a partir de
-      ±50 m³/s) que garante <strong>pelo menos 3 anos análogos</strong>. Você pode ajustá-lo em
-      m³/s ou em % da vazão atual — ao trocar a unidade, o valor é convertido, sem mudar a seleção.
+      ±50 m³/s) que reúne <strong>pelo menos 3 anos análogos</strong>. Você pode ajustá-lo em
+      m³/s ou em % da vazão atual. Ao trocar a unidade, o valor é convertido, sem mudar a seleção.
       Mexa no controle e veja a sensibilidade: o número de anos análogos e as curvas se
       atualizam na hora.</p>
 
@@ -87,17 +93,17 @@
         menos 80% dos dias com dado até o fim do horizonte e alguma medição nos últimos 10 dias
         do horizonte.</li>
         <li>Cada dia usa a melhor fonte disponível: dado consistido do HIDRO &gt; dado bruto &gt;
-        telemetria. Esta estação não possui dados no HIDRO — a série é 100% telemetria
+        telemetria. Esta estação não possui dados no HIDRO: a série é 100% telemetria
         (desde 2013).</li>
         <li><strong>Controle de qualidade automático:</strong> valores não positivos e trechos
-        com salto de escala (erro de curva-chave — ex.: 2018 inteiro ~85× acima do padrão)
+        com salto de escala (erro de curva-chave, como 2018 inteiro cerca de 85 vezes acima do padrão)
         são detectados por descontinuidade e descartados. Secas extremas reais, que evoluem
         de forma contínua, são preservadas. Os trechos descartados estão listados na memória
         de cálculo.</li>
       </ul>
 
       <h3>Como ler (e como não ler)</h3>
-      <p>Isto <strong>não é uma previsão meteorológica</strong>: é uma projeção por analogia —
+      <p>Isto <strong>não é uma previsão meteorológica</strong>. É uma projeção por analogia:
       "se este ano se comportar como os anos parecidos, a vazão deve ficar entre a curva laranja
       e a azul, com a pontilhada como referência central". Chuvas fora do padrão histórico podem
       levar o rio para fora dessa faixa. Atenção ao universo: esta estação tem dados
@@ -111,35 +117,27 @@
       em verde pontilhado e o ano vigente em preto.</p>
 
       <h3>Exportações</h3>
-      <p>O PDF do conjunto, a memória de cálculo (PDF) e o CSV são gerados na hora, refletindo
-      exatamente o que está na tela — incluindo o intervalo que você ajustou. A memória de
+      <p>O PDF do conjunto, a memória de cálculo (PDF) e o CSV são gerados na hora e
+      reproduzem o que está na tela, inclusive o intervalo que você ajustou. A memória de
       cálculo lista todos os anos candidatos com o motivo de cada inclusão ou exclusão, para
       auditoria completa.</p>
     </div>
   </dialog>
 
   <footer class="rodape">
-    <p>Metodologia: a partir do último dado do ano corrente (dia D), são selecionados os anos
-    históricos cuja vazão no mesmo dia/mês está dentro do intervalo escolhido em torno da
-    vazão atual (tolerância de ±3 dias quando falta o dado exato; exige-se ≥80% de cobertura
-    entre D e o fim do horizonte e dado nos últimos 10 dias do horizonte). As trajetórias
-    projetadas são as dos anos de maior e menor queda até o fim do horizonte escolhido (1 a 12
-    meses inteiros após o mês do último dado) e a média de todos os análogos, deslocadas para
-    coincidir com a vazão atual no dia D. O intervalo inicial é o menor (≥50 m³/s) que contém
-    pelo menos 3 anos análogos. A estação 18821000 não possui dados no banco HIDRO — a série
-    é composta integralmente pela telemetria, disponível desde 2013. Valores não positivos e
-    trechos com salto de escala (erro de curva-chave) são descartados automaticamente por
-    detecção de descontinuidade contra a referência sazonal.
-    Detalhes no botão "Como funciona?".
+    <p>Projeção por analogia com os anos de vazão parecida no mesmo dia do calendário. Regras,
+    critério das curvas e figuras na <a href="metodologia.html" class="link-secundario">página de
+    metodologia</a>. A estação 18821000 não possui dados no banco HIDRO: a série é composta
+    integralmente pela telemetria, disponível desde 2013.
     Fonte: data lake da ANA (telemetria).</p>
   </footer>
 
   <script src="vendor/jspdf.umd.min.js"></script>
   <script src="vendor/jspdf.plugin.autotable.min.js"></script>
-  <script src="js/analogia.js?v=9"></script>
-  <script src="js/grafico.js?v=9"></script>
-  <script src="js/graficos_extras.js?v=9"></script>
-  <script src="js/exportar_pdf.js?v=9"></script>
-  <script src="js/principal.js?v=9"></script>
+  <script src="js/analogia.js?v=12"></script>
+  <script src="js/grafico.js?v=12"></script>
+  <script src="js/graficos_extras.js?v=12"></script>
+  <script src="js/exportar_pdf.js?v=12"></script>
+  <script src="js/principal.js?v=12"></script>
 </body>
 </html>

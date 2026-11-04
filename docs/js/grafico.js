@@ -7,8 +7,8 @@ const Grafico = (() => {
   let GRANDEZA = "Cota"; // slug -> {doc, grafico, resultado atual} p/ o PDF do conjunto
   const CORES = {
     observado: "#1a1a1a",
-    maiorQueda: "#D55E00",
-    menorQueda: "#0072B2",
+    inferior: "#D55E00",   // curva de baixo (maior queda ou menor subida)
+    superior: "#0072B2",   // curva de cima (menor queda ou maior subida)
     media: "#009E73",
     anoAnalogo: "#b5b5b5",
     anoComum: "#e4e4e4",
@@ -107,6 +107,71 @@ const Grafico = (() => {
     return { min, dataMin };
   }
 
+  /** Máximo (valor, data) de uma trajetória alinhada a r.datas_proj. */
+  function maximoTrajetoria(serie, datasProj) {
+    let max = null, dataMax = null;
+    for (let k = 0; k < datasProj.length; k++) {
+      if (serie[k] !== null && serie[k] !== undefined) {
+        if (max === null || serie[k] > max) { max = serie[k]; dataMax = datasProj[k]; }
+      }
+    }
+    return { max, dataMax };
+  }
+
+  // ---- regime dos análogos e curvas extremas (ver regras em analogia.js) ----
+  const NOME_CRITERIO = {
+    maior_queda: "Maior queda", menor_queda: "Menor queda",
+    menor_subida: "Menor subida", maior_subida: "Maior subida",
+  };
+
+  /** Extremo marcado em cada curva: o mínimo nas curvas de queda, o máximo nas de subida;
+   * na média, o do regime. */
+  const tipoExtremo = (criterio) => (criterio.endsWith("subida") ? "max" : "min");
+  const tipoExtremoMedia = (r) => (r.regime === "subida" ? "max" : "min");
+
+  /** Extremo (valor, data) de uma trajetória, mínimo ou máximo. */
+  function extremoTrajetoria(serie, datasProj, tipo) {
+    if (tipo === "max") {
+      const { max, dataMax } = maximoTrajetoria(serie, datasProj);
+      return { valor: max, data: dataMax };
+    }
+    const { min, dataMin } = minimoTrajetoria(serie, datasProj);
+    return { valor: min, data: dataMin };
+  }
+
+  /** Curvas inferior e superior com nome, ano, cor e extremo marcado. */
+  function curvasExtremas(r) {
+    const tj = r.trajetorias;
+    if (!tj) return [];
+    return [
+      { chave: "inferior", serie: tj.inferior, interp: tj.inferior_interp, ano: r.ano_inferior,
+        criterio: r.criterio_inferior, cor: CORES.inferior },
+      { chave: "superior", serie: tj.superior, interp: tj.superior_interp, ano: r.ano_superior,
+        criterio: r.criterio_superior, cor: CORES.superior },
+    ].map((c) => ({ ...c, nome: NOME_CRITERIO[c.criterio], tipo: tipoExtremo(c.criterio) }));
+  }
+
+  const dataCurta = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+
+  /** Frase do regime para a tela, o CSV e o PDF. */
+  function textoRegime(r) {
+    if (!r.regime) return "";
+    if (!r.ciclo) {
+      return `Regime dos análogos: ${r.regime} (nenhum análogo com o ciclo anual completo; ` +
+             "curvas de maior e menor queda).";
+    }
+    const c = r.ciclo;
+    const curvas = r.regime === "subida"
+      ? "curvas de menor e maior subida (a data média do mínimo já passou)"
+      : "curvas de maior e menor queda (a data média do mínimo ainda não chegou)";
+    const quais = c.n < r.selecionados.length
+      ? `${c.n} análogos com o ciclo anual completo (de ${r.selecionados.length})`
+      : `${c.n} análogos`;
+    return `Regime dos análogos: ${r.regime}, com ${curvas}. Data média do mínimo dos ` +
+           `${quais}: ${dataCurta(c.data_media_min)} (desvio de ${Math.round(c.desvio_min)} dias); ` +
+           `data média do máximo: ${dataCurta(c.data_media_max)} (desvio de ${Math.round(c.desvio_max)} dias).`;
+  }
+
   function marcador(x, y, texto, cor, posicao) {
     return {
       x: [x], y: [y], mode: "markers+text", text: [texto],
@@ -126,13 +191,15 @@ const Grafico = (() => {
     };
   }
 
-  /** Rótulo da queda para a legenda: " · queda 191 cm" (ou "subida" se negativa). */
-  function rotuloQueda(r, ano) {
+  /** Rótulo do delta da curva para a legenda: " · queda 191 cm" ou " · subida 85 cm",
+   * conforme o critério que escolheu a curva. */
+  function rotuloDelta(r, ano, criterio) {
     const c = r.candidatos.find((c) => c.ano === ano);
-    if (!c || c.delta === null) return "";
-    return c.delta >= 0
-      ? ` · queda ${Math.round(c.delta)} ${UNIDADE}`
-      : ` · subida ${Math.round(-c.delta)} ${UNIDADE}`;
+    if (!c) return "";
+    const subida = criterio.endsWith("subida");
+    const v = subida ? c.subida : c.delta;
+    if (v === null || v === undefined) return "";
+    return ` · ${subida ? "subida" : "queda"} ${Math.round(v)} ${UNIDADE}`;
   }
 
   /** Amplitude vertical dos dados plotados (para calibrar a anticolisão). */
@@ -149,8 +216,8 @@ const Grafico = (() => {
     varre(datasEntre(inicioJanela(r), r.dia_d).map((iso) => valorEm(doc, iso)));
     if (r.trajetorias) {
       Object.values(r.trajetorias.todas).forEach(varre);
-      varre(r.trajetorias.maior_queda);
-      varre(r.trajetorias.menor_queda);
+      varre(r.trajetorias.inferior);
+      varre(r.trajetorias.superior);
     }
     return max > min ? max - min : 1;
   }
@@ -180,6 +247,8 @@ const Grafico = (() => {
    * poucos dias um do outro).
    */
   function posicionarRotulos(minimos, amplitudeY) {
+    // rótulo isolado: abaixo do mínimo, acima do máximo
+    const padrao = (m) => (m.tipo === "max" ? { ...DESLOCAMENTO_PADRAO, yshift: 14 } : DESLOCAMENTO_PADRAO);
     const limY = amplitudeY * 0.07;
     const n = minimos.length;
     const adjacentes = Array.from({ length: n }, () => []);
@@ -192,7 +261,7 @@ const Grafico = (() => {
         }
       }
     }
-    const deslocamentos = minimos.map(() => DESLOCAMENTO_PADRAO);
+    const deslocamentos = minimos.map(padrao);
     const visitado = new Array(n).fill(false);
     for (let i = 0; i < n; i++) {
       if (visitado[i]) continue;
@@ -227,12 +296,8 @@ const Grafico = (() => {
       }
       const tj = r.trajetorias;
       const proj = [
-        [tj.maior_queda,
-         `Maior queda (${r.ano_maior_queda}${rotuloQueda(r, r.ano_maior_queda)})`,
-         CORES.maiorQueda, "solid"],
-        [tj.menor_queda,
-         `Menor queda (${r.ano_menor_queda}${rotuloQueda(r, r.ano_menor_queda)})`,
-         CORES.menorQueda, "solid"],
+        ...curvasExtremas(r).map((c) => [
+          c.serie, `${c.nome} (${c.ano}${rotuloDelta(r, c.ano, c.criterio)})`, c.cor, "solid"]),
         [tj.media, `Média (${r.selecionados.length} anos)`, CORES.media, "dot"],
       ];
       for (const [serie, nome, cor, traco] of proj) {
@@ -250,19 +315,19 @@ const Grafico = (() => {
     tObs.showlegend = true;
     traces.push(tObs);
 
-    // marcadores com valores: último dado e mínimos das 3 projeções
+    // marcadores com valores: último dado e extremo de cada projeção (mínimo nas curvas
+    // de queda, máximo nas de subida)
     traces.push(marcador(r.dia_d, r.cota_atual, String(Math.round(r.cota_atual)),
                          CORES.observado, "top center"));
     if (r.trajetorias) {
       const tj = r.trajetorias;
       const minimos = [];
-      for (const [serie, cor] of [
-        [tj.maior_queda, CORES.maiorQueda],
-        [tj.menor_queda, CORES.menorQueda],
-        [tj.media, CORES.media],
+      for (const [serie, cor, tipo] of [
+        ...curvasExtremas(r).map((c) => [c.serie, c.cor, c.tipo]),
+        [tj.media, CORES.media, tipoExtremoMedia(r)],
       ]) {
-        const { min, dataMin } = minimoTrajetoria(serie, datasProj);
-        if (min !== null) minimos.push({ x: dataMin, y: min, cor });
+        const { valor, data } = extremoTrajetoria(serie, datasProj, tipo);
+        if (valor !== null) minimos.push({ x: data, y: valor, cor, tipo });
       }
       const deslocamentos = posicionarRotulos(minimos, faixaY(doc, r));
       minimos.forEach((m, i) => {
@@ -375,9 +440,10 @@ const Grafico = (() => {
     if (r.pc2 !== null && r.pc2 !== undefined) L.push(`Ponto de controle 2 (${UNIDADE});${numeroBR(r.pc2, 0)}`);
     L.push(`Horizonte da projeção;${rotuloHorizonte(r)}`);
     L.push(`Regras;tolerância ±3 dias no dia D;cobertura de D ao fim do horizonte ≥80% e dado nos últimos 10 dias do horizonte`);
+    if (r.regime) L.push(`Regime;${textoRegime(r)}`);
     L.push("");
     L.push("BLOCO 1 — Anos candidatos (universo completo e seleção)");
-    L.push(`ano;fonte_dos_dados;valor_em_D_${UNIDADE};dias_tolerancia;cobertura_pos_D_%;min_pos_D_${UNIDADE};delta_queda_${UNIDADE};selecionado;motivo_exclusao`);
+    L.push(`ano;fonte_dos_dados;valor_em_D_${UNIDADE};dias_tolerancia;cobertura_pos_D_%;min_pos_D_${UNIDADE};delta_queda_${UNIDADE};max_pos_D_${UNIDADE};delta_subida_${UNIDADE};dia_do_minimo_do_ciclo;dia_do_maximo_do_ciclo;selecionado;motivo_exclusao`);
     for (const c of r.candidatos) {
       L.push([
         c.ano,
@@ -387,19 +453,26 @@ const Grafico = (() => {
         c.cobertura === null ? "" : numeroBR(c.cobertura * 100),
         numeroBR(c.min_pos_d, 0),
         numeroBR(c.delta, 0),
+        numeroBR(c.max_pos_d, 0),
+        numeroBR(c.subida, 0),
+        c.dia_min_ciclo === null ? "" : c.dia_min_ciclo,
+        c.dia_max_ciclo === null ? "" : c.dia_max_ciclo,
         c.selecionado ? "sim" : "não",
         c.motivo || "",
       ].join(";"));
     }
+    L.push("dia_do_minimo_do_ciclo e dia_do_maximo_do_ciclo: dias em relação a D (negativo = antes de D) no ciclo de 365 dias centrado em D");
     L.push("");
     L.push(`BLOCO 2 — Séries do gráfico (dia a dia, ${formatarDataBR(inicioJanela(r))} a ${formatarDataBR(r.fim_horizonte)})`);
-    L.push(`data;observado_${UNIDADE};proj_maior_queda_${UNIDADE};proj_menor_queda_${UNIDADE};proj_media_${UNIDADE};interpolado`);
+    const nomeCol = (crit, padrao) => `proj_${crit || padrao}_${UNIDADE}`;
+    L.push(`data;observado_${UNIDADE};${nomeCol(r.criterio_inferior, "inferior")};` +
+           `${nomeCol(r.criterio_superior, "superior")};proj_media_${UNIDADE};interpolado`);
     for (const l of linhasSerieDiaria(doc, r)) {
       const linha = [
         formatarDataBR(l.data),
         l.obs === null ? "" : numeroBR(l.obs, 0),
-        l.temProj ? numeroBR(l.maior) : "",
-        l.temProj ? numeroBR(l.menor) : "",
+        l.temProj ? numeroBR(l.inferior) : "",
+        l.temProj ? numeroBR(l.superior) : "",
         l.temProj ? numeroBR(l.media) : "",
         l.interp ? "sim" : "",
       ];
@@ -429,10 +502,10 @@ const Grafico = (() => {
         data: iso,
         obs: iso <= r.dia_d ? valorEm(doc, iso) : null,
         temProj,
-        maior: temProj ? val(tj.maior_queda) : null,
-        menor: temProj ? val(tj.menor_queda) : null,
+        inferior: temProj ? val(tj.inferior) : null,
+        superior: temProj ? val(tj.superior) : null,
         media: temProj ? val(tj.media) : null,
-        interp: temProj && (tj.maior_queda_interp[k] || tj.menor_queda_interp[k]),
+        interp: temProj && (tj.inferior_interp[k] || tj.superior_interp[k]),
       };
     });
   }
@@ -498,6 +571,7 @@ const Grafico = (() => {
           <span>${UNIDADE}</span></label>
       </div>
       <p class="aviso"></p>
+      <p class="regime"></p>
       <div class="grafico"></div>
       <p class="estacao-rodape"></p>`;
     main.appendChild(sec);
@@ -510,6 +584,7 @@ const Grafico = (() => {
       btnPct: sec.querySelector(".ctl-pct"),
       contagem: sec.querySelector(".contagem"),
       aviso: sec.querySelector(".aviso"),
+      regime: sec.querySelector(".regime"),
       grafico: sec.querySelector(".grafico"),
       rodape: sec.querySelector(".estacao-rodape"),
       csv: sec.querySelector(".botao-sec"),
@@ -540,6 +615,7 @@ const Grafico = (() => {
       el.contagem.textContent = String(r.selecionados.length);
       el.fimHorizonte.textContent = `até ${formatarDataBR(r.fim_horizonte)}`;
       el.aviso.textContent = r.aviso || "";
+      el.regime.textContent = textoRegime(r);
       el.rodape.textContent = r.selecionados.length
         ? `Anos análogos (${GRANDEZA.toLowerCase()} em ${formatarDataBR(r.dia_d).slice(0, 5)} dentro de ±${numeroBR(r.limite_cm)} ${UNIDADE} da atual): ${r.selecionados.join(", ")}.`
         : "";
@@ -632,6 +708,7 @@ const Grafico = (() => {
     render();
   }
 
-  return { montarSecao, datasDoAno, minimoTrajetoria, linhasSerieDiaria, rotuloHorizonte,
-           inicioJanela, registro: REGISTRO };
+  return { montarSecao, datasDoAno, minimoTrajetoria, maximoTrajetoria, extremoTrajetoria,
+           curvasExtremas, tipoExtremoMedia, textoRegime, NOME_CRITERIO, linhasSerieDiaria,
+           rotuloHorizonte, inicioJanela, registro: REGISTRO };
 })();

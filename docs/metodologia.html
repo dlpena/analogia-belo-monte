@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Metodologia — UHE Belo Monte Montante</title>
+  <link rel="stylesheet" href="css/estilo.css?v=8">
+</head>
+<body>
+  <header class="topo">
+    <div>
+      <h1>Metodologia da projeção por analogia</h1>
+      <p class="subtitulo">Como o painel escolhe os anos análogos, decide o regime e destaca as curvas · UHE Belo Monte Montante · vazões em m³/s</p>
+    </div>
+    <div class="topo-acoes">
+      <div class="topo-meta">
+        <a href="index.html" class="link-secundario">← Projeções de vazão</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="metodologia">
+    <div class="indice">
+      <strong>Nesta página</strong>
+      <ol>
+        <li><a href="#ideia">A ideia</a></li>
+        <li><a href="#analogos">Anos análogos</a></li>
+        <li><a href="#trajetorias">Trajetórias deslocadas</a></li>
+        <li><a href="#regime">Regime dos análogos: descida ou subida</a></li>
+        <li><a href="#curvas">Curvas destacadas</a></li>
+        <li><a href="#horizonte">Horizonte da projeção</a></li>
+        <li><a href="#leitura">Como ler e limites</a></li>
+        <li><a href="#dados">Dados e controle de qualidade</a></li>
+        <li><a href="#exportacoes">Exportações</a></li>
+      </ol>
+    </div>
+
+    <h2 id="ideia">1. A ideia</h2>
+    <p>A projeção responde a uma pergunta: se o rio se comportar daqui até o fim do horizonte como
+    se comportou em anos passados que, nesta mesma data, estavam com vazão parecida com a atual,
+    que trajetórias são plausíveis? O painel não usa modelo de chuva nem previsão meteorológica.
+    Ele usa apenas o histórico da própria estação.</p>
+    <p>O último dia com dado do ano corrente é chamado de <strong>dia D</strong>, e a vazão nesse
+    dia é a <strong>vazão atual</strong>. Por padrão, a projeção vai de D até 31 de dezembro (seção
+    6).</p>
+    <p>As figuras desta página usam dados reais da estação. Em cada exemplo, a série de 2026 foi
+    cortada no dia D indicado, para mostrar o painel como ele estava naquele dia, com a projeção até
+    31/dez. As figuras são geradas pelo script <code>ferramentas/figuras_metodologia.py</code>, que
+    usa o mesmo algoritmo do painel.</p>
+
+    <h2 id="analogos">2. Anos análogos</h2>
+    <p>Um ano do histórico é <strong>análogo</strong> quando, no mesmo dia e mês de D, a vazão
+    daquele ano estava dentro do <strong>Intervalo</strong> em torno da vazão atual. O Intervalo é
+    ajustável no painel, em m³/s ou em % da vazão atual. Ao abrir, o gráfico usa o menor Intervalo,
+    de pelo menos ±50 m³/s, que reúne três anos análogos ou mais.</p>
+    <ul>
+      <li>Se o ano não tem dado exatamente no dia D, vale o dado mais próximo em até 3 dias, com
+      preferência para o dia anterior em caso de empate. Sem dado nessa janela, o ano fica de fora.</li>
+      <li>O ano também fica de fora se tiver menos de 80% dos dias com dado entre D e o fim do
+      horizonte, ou se não tiver nenhum dado nos últimos 10 dias do horizonte.</li>
+      <li>Com menos de três análogos, o painel mostra um aviso. Sem nenhum, não há projeção.</li>
+    </ul>
+    <figure>
+      <a href="img/metodologia/analogos.png" title="Abrir a figura em tamanho cheio"><img src="img/metodologia/analogos.png" alt="Vazões de Belo Monte Montante em todos os anos do histórico, com 2026 até 1º de agosto e o intervalo em torno da vazão atual"></a>
+      <figcaption>Figura 1. D = 01/08/2026. Em cinza-escuro, os anos cuja vazão em 1º de agosto caiu
+      dentro do Intervalo (barra lilás); em cinza-claro, os demais anos do histórico. A linha preta
+      é o observado de 2026 até D.</figcaption>
+    </figure>
+
+    <h2 id="trajetorias">3. Trajetórias deslocadas</h2>
+    <p>De cada ano análogo, o painel toma a série de D até o fim do horizonte e a desloca na
+    vertical para que ela comece exatamente na vazão atual. Assim, todas as trajetórias partem do
+    mesmo ponto e passam a mostrar variações em relação a hoje. Lacunas internas de cada trajetória
+    são preenchidas por interpolação linear e ficam marcadas no CSV e na memória de cálculo. A
+    <strong>média</strong> é a média dia a dia das trajetórias deslocadas de todos os análogos.</p>
+    <p>Para cada análogo, o painel mede duas grandezas até o fim do horizonte:</p>
+    <ul>
+      <li><strong>queda</strong>: vazão em D menos o mínimo no horizonte;</li>
+      <li><strong>subida</strong>: máximo no horizonte menos a vazão em D.</li>
+    </ul>
+    <figure>
+      <a href="img/metodologia/trajetorias.png" title="Abrir a figura em tamanho cheio"><img src="img/metodologia/trajetorias.png" alt="Trajetórias deslocadas dos anos análogos a partir de 1º de agosto de 2026"></a>
+      <figcaption>Figura 2. As mesmas trajetórias da Figura 1 depois de D, deslocadas para a vazão
+      atual. As curvas coloridas são as destacadas pelo painel, conforme as seções 4 e 5.</figcaption>
+    </figure>
+
+    <h2 id="regime">4. Regime dos análogos: descida ou subida</h2>
+    <p>Antes de escolher as curvas destacadas, o painel decide se o conjunto de análogos está
+    <strong>descendo</strong> rumo ao mínimo do ciclo ou já <strong>subindo</strong> rumo ao
+    máximo. A decisão é do conjunto e vale para as duas curvas.</p>
+    <ol>
+      <li>Para cada análogo, o painel examina o ciclo de 365 dias centrado na data equivalente a D
+      (182 dias antes e 182 dias depois) e localiza o dia do mínimo e o dia do máximo. Entram apenas
+      análogos com dado em pelo menos 70% desses dias.</li>
+      <li>Calcula a <strong>data média do mínimo</strong> e a <strong>data média do máximo</strong>
+      dos análogos. A média é circular, própria para datas de um ciclo anual: um mínimo em 28 de
+      dezembro e outro em 3 de janeiro têm média em 31 de dezembro, e não em junho.</li>
+      <li>A partir de D, olha qual extremo médio vem primeiro. Se é o mínimo, o regime é de
+      <strong>descida</strong>. Se é o máximo, porque a data média do mínimo já passou, o regime é
+      de <strong>subida</strong>, mesmo que alguns análogos ainda desçam antes de subir.</li>
+    </ol>
+    <p>O painel informa, acima do gráfico, o regime, as duas datas médias e o desvio-padrão
+    circular de cada uma, em dias. O desvio mede o quanto os análogos discordam sobre a data do
+    extremo e serve apenas de referência: a regra de decisão não o usa. O regime não depende do
+    horizonte escolhido, porque o ciclo examinado é sempre o de 365 dias em torno de D.</p>
+    <figure>
+      <a href="img/metodologia/ciclo.png" title="Abrir a figura em tamanho cheio"><img src="img/metodologia/ciclo.png" alt="Dias do mínimo e do máximo do ciclo de cada ano análogo em torno de 4 de novembro de 2026"></a>
+      <figcaption>Figura 3. D = 04/11/2026. Cada linha é um análogo, com o dia do mínimo (triângulo
+      laranja) e o dia do máximo (triângulo azul) do seu ciclo. As linhas tracejadas são as datas
+      médias. A data média do mínimo ficou antes de D, e o próximo extremo médio é o máximo: regime
+      de subida. Um extremo encostado na borda esquerda está a meio ano de D, tão perto da borda
+      direita quanto da esquerda, e a média circular o trata assim.</figcaption>
+    </figure>
+
+    <h2 id="curvas">5. Curvas destacadas</h2>
+    <p>O critério das curvas segue o regime e é o mesmo para as duas:</p>
+    <ul>
+      <li><strong>Descida.</strong> <span class="cor-maior">■</span> curva de baixo = análogo de
+      <strong>maior queda</strong>; <span class="cor-menor">■</span> curva de cima = análogo de
+      <strong>menor queda</strong>.</li>
+      <li><strong>Subida.</strong> <span class="cor-maior">■</span> curva de baixo = análogo de
+      <strong>menor subida</strong>; <span class="cor-menor">■</span> curva de cima = análogo de
+      <strong>maior subida</strong>.</li>
+      <li><span class="cor-media">■</span> <strong>Média</strong> (pontilhada) dos análogos, em
+      qualquer regime.</li>
+    </ul>
+    <p>Na descida, cada curva tem o mínimo marcado com o valor; na subida, o máximo. A média segue o
+    regime. Em empate na queda, decide a subida (a maior queda fica com o ano de menor subida); em
+    empate na subida, decide a queda. Persistindo o empate, vale o ano mais antigo. A legenda mostra
+    o ano de cada curva e a queda ou subida dele no horizonte.</p>
+    <figure>
+      <a href="img/metodologia/regimes.png" title="Abrir a figura em tamanho cheio"><img src="img/metodologia/regimes.png" alt="Curvas destacadas em 1º de agosto (descida) e em 4 de novembro de 2026 (subida)"></a>
+      <figcaption>Figura 4. Dois dias de 2026. À esquerda, D = 01/08, ainda antes da data média do
+      mínimo: curvas de maior e menor queda. A linha preta tracejada é o que o rio fez depois de D,
+      desconhecido naquele dia. À direita, D = 04/11, depois da data média do mínimo: curvas de
+      menor e maior subida.</figcaption>
+    </figure>
+
+    <h2 id="horizonte">6. Horizonte da projeção</h2>
+    <p>Por padrão, o gráfico mostra o ano civil (jan–dez) e a projeção vai até 31/dez. O seletor
+    <strong>Horizonte da projeção</strong> permite projetar de 1 a 12 meses inteiros depois do mês do
+    último dado; o mês do último dado não entra na conta. Nesse caso, o gráfico mostra 12 meses
+    inteiros a partir do dia 1: com horizonte de 6 meses, aparecem 6 meses observados, o mês
+    corrente até o último dado e 6 meses projetados. O botão <strong>Voltar para jan–dez</strong>
+    restaura o padrão.</p>
+    <p>Quando o horizonte atravessa a virada do ano, cada ano análogo continua no ano seguinte a ele.
+    O análogo cujo ano seguinte ainda não tem dados até o fim do horizonte sai do universo, com o
+    motivo registrado na memória de cálculo. Por isso horizontes longos podem reduzir o número de
+    anos análogos. A queda e a subida de cada análogo são medidas até o fim do horizonte escolhido.</p>
+
+    <h2 id="leitura">7. Como ler e limites</h2>
+    <ul>
+      <li>A projeção diz o que aconteceria se este ano repetisse o comportamento dos anos parecidos.
+      Chuva fora do padrão histórico pode levar o rio para fora da faixa entre as curvas
+      destacadas.</li>
+      <li>Num ano de estiagem atrasada, os análogos podem já ter passado do mínimo enquanto a vazão
+      ainda cai. Nesse caso o regime é de subida e as curvas destacadas mostram pouca queda. As
+      trajetórias cinzas continuam visíveis e mostram quais análogos ainda desceram antes de
+      subir.</li>
+      <li>Perto da data média do mínimo, o regime pode trocar de um dia para o outro, porque o
+      conjunto de análogos muda com a vazão.</li>
+      <li>O histórico desta estação começa em 2013. Os anos análogos vêm, portanto, de pouco mais
+      de uma década de dados.</li>
+      <li>O Intervalo controla o equilíbrio entre semelhança e quantidade: Intervalo pequeno reúne
+      anos mais parecidos, porém poucos. Ajustá-lo mostra a sensibilidade da projeção.</li>
+    </ul>
+
+    <h2 id="dados">8. Dados e controle de qualidade</h2>
+    <ul>
+      <li>As vazões vêm da telemetria da ANA, no data lake da Agência. A estação 18821000 não tem
+      dados no banco HIDRO; a série é toda de telemetria, desde 2013.</li>
+      <li>Valores não positivos e trechos com salto de escala (erro de curva-chave) são detectados
+      por descontinuidade contra a referência sazonal e descartados. Secas extremas reais, que
+      evoluem de forma contínua, são preservadas. Os trechos descartados estão listados na memória
+      de cálculo.</li>
+    </ul>
+
+    <h2 id="exportacoes">9. Exportações</h2>
+    <p>O PDF do conjunto, a memória de cálculo em PDF e o CSV são gerados no navegador com o
+    Intervalo e o horizonte ajustados na tela. A memória de cálculo lista todos os anos candidatos
+    com o motivo de inclusão ou exclusão, a queda e a subida de cada um e os dias do mínimo e do
+    máximo do ciclo usados na decisão do regime.</p>
+  </main>
+
+  <footer class="rodape">
+    <p>Fonte: data lake da ANA (telemetria).</p>
+  </footer>
+</body>
+</html>

@@ -136,9 +136,14 @@ const ExportarPDF = (() => {
       "empate favorece o dia anterior); seleção se |cota − cota atual| ≤ range; exige-se ≥80% " +
       "de cobertura entre D e o fim do horizonte e dado nos últimos 10 dias do horizonte (quando " +
       "o horizonte entra no ano seguinte, o análogo usa os dados do ano seguinte ao seu); delta " +
-      "de queda = cota em D − mínimo no horizonte; trajetórias deslocadas para coincidir com a cota atual em D; " +
+      "de queda = cota em D − mínimo no horizonte; delta de subida = máximo no horizonte − cota em D; " +
+      "regime dos análogos pela data média (circular) do mínimo e do máximo de cada análogo no " +
+      "ciclo de 365 dias centrado em D: descida se o próximo extremo médio é o mínimo, subida " +
+      "se é o máximo; curvas: descida, maior e menor queda; subida, menor e maior subida; " +
+      "trajetórias deslocadas para coincidir com a cota atual em D; " +
       "lacunas internas interpoladas linearmente (marcadas na seção 5). Este documento reflete " +
       "o intervalo ajustado na tela no momento da exportação.", y, largura);
+    if (r.regime) y = nota(pdf, t(Grafico.textoRegime(r)), y, largura);
     if (r.aviso) y = nota(pdf, `Aviso: ${r.aviso}`, y, largura);
 
     y = tituloSecao(pdf, "2. Cobertura por fonte da série integrada", y + 1);
@@ -168,45 +173,55 @@ const ExportarPDF = (() => {
         String(c.ano), fpa[String(c.ano)] || "", fmt(c.cota_em_d, 0),
         c.dias_tolerancia === null ? "" : String(c.dias_tolerancia),
         c.cobertura === null ? "" : fmt(c.cobertura * 100, 0),
-        fmt(c.min_pos_d, 0), fmt(c.delta, 0),
+        fmt(c.min_pos_d, 0), fmt(c.delta, 0), fmt(c.subida, 0),
+        c.dia_min_ciclo === null ? "" : String(c.dia_min_ciclo),
+        c.dia_max_ciclo === null ? "" : String(c.dia_max_ciclo),
         c.selecionado ? "sim" : "não", c.motivo || "",
       ];
     });
     pdf.autoTable({
       ...GRADE, startY: y,
       head: [["Ano", "Fonte", `Valor em D\n(${u})`, "Toler.\n(dias)", "Cobert.\npós-D (%)",
-              `Mín. pós-D\n(${u})`, `Delta queda\n(${u})`, "Selec.", "Motivo de exclusão"]],
+              `Mín. pós-D\n(${u})`, `Delta queda\n(${u})`, `Delta subida\n(${u})`,
+              "Dia do mín.\ndo ciclo", "Dia do máx.\ndo ciclo", "Selec.", "Motivo de exclusão"]],
       body: corpo,
       columnStyles: { 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" },
-                      5: { halign: "right" }, 6: { halign: "right" } },
+                      5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" },
+                      8: { halign: "right" }, 9: { halign: "right" } },
       didParseCell: (d) => {
         if (d.section === "body" && selecionadas.has(d.row.index)) {
           d.cell.styles.fillColor = [238, 245, 251];
         }
       },
     });
-    y = pdf.lastAutoTable.finalY + 6;
+    y = pdf.lastAutoTable.finalY + 2;
+    y = nota(pdf, "Dia do mínimo e dia do máximo do ciclo: dias em relação a D (negativo = antes " +
+                  "de D) no ciclo de 365 dias centrado em D, só para os selecionados.", y, largura) + 3;
 
     y = tituloSecao(pdf, "4. Projeções resultantes", y);
     const tj = r.trajetorias;
     if (tj) {
       const linhas = [];
+      const brD = (iso) => (iso ? iso.split("-").reverse().join("/") : "");
       for (const [nome, serie, ano] of [
-        ["Maior queda", tj.maior_queda, String(r.ano_maior_queda)],
-        ["Menor queda", tj.menor_queda, String(r.ano_menor_queda)],
+        ...Grafico.curvasExtremas(r).map((c) => [c.nome, c.serie, String(c.ano)]),
         ["Média", tj.media, `${r.selecionados.length} anos`],
       ]) {
         const { min, dataMin } = Grafico.minimoTrajetoria(serie, r.datas_proj);
-        linhas.push([nome, ano, fmt(min, 0),
-                     dataMin ? dataMin.split("-").reverse().join("/") : "",
-                     min === null ? "" : fmt(r.cota_atual - min, 0)]);
+        const { max, dataMax } = Grafico.maximoTrajetoria(serie, r.datas_proj);
+        linhas.push([nome, ano, fmt(min, 0), brD(dataMin),
+                     min === null ? "" : fmt(r.cota_atual - min, 0),
+                     fmt(max, 0), brD(dataMax),
+                     max === null ? "" : fmt(max - r.cota_atual, 0)]);
       }
       pdf.autoTable({
         ...GRADE, startY: y,
-        head: [["Curva", "Ano de referência", `Mínimo projetado (${u})`,
-                "Data do mínimo", `Queda desde o valor atual (${u})`]],
+        head: [["Curva", "Ano de\nreferência", `Mínimo\nprojetado (${u})`, "Data do\nmínimo",
+                `Queda desde o\nvalor atual (${u})`, `Máximo\nprojetado (${u})`, "Data do\nmáximo",
+                `Subida desde o\nvalor atual (${u})`]],
         body: linhas,
-        columnStyles: { 2: { halign: "right" }, 4: { halign: "right" } },
+        columnStyles: { 2: { halign: "right" }, 4: { halign: "right" },
+                        5: { halign: "right" }, 7: { halign: "right" } },
       });
       y = pdf.lastAutoTable.finalY + 6;
     } else {
@@ -221,16 +236,17 @@ const ExportarPDF = (() => {
       serieCorpo.push([
         brData(l.data),
         l.obs === null ? "" : fmt(l.obs, 0),
-        l.temProj ? fmt(l.maior) : "",
-        l.temProj ? fmt(l.menor) : "",
+        l.temProj ? fmt(l.inferior) : "",
+        l.temProj ? fmt(l.superior) : "",
         l.temProj ? fmt(l.media) : "",
         l.interp ? "sim" : "",
       ]);
     }
+    const nomeProj = (crit, padrao) => `Proj. ${(Grafico.NOME_CRITERIO[crit] || padrao).toLowerCase()} (${u})`;
     pdf.autoTable({
       ...GRADE, startY: y,
-      head: [["Data", `Observado (${u})`, `Proj. maior queda (${u})`,
-              `Proj. menor queda (${u})`, `Proj. média (${u})`, "Interpolado"]],
+      head: [["Data", `Observado (${u})`, nomeProj(r.criterio_inferior, "curva inferior"),
+              nomeProj(r.criterio_superior, "curva superior"), `Proj. média (${u})`, "Interpolado"]],
       body: serieCorpo,
       columnStyles: { 1: { halign: "right" }, 2: { halign: "right" },
                       3: { halign: "right" }, 4: { halign: "right" } },
