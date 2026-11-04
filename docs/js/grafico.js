@@ -561,6 +561,8 @@ const Grafico = (() => {
           <span class="ctl-fim-horizonte"></span></label>
         <button type="button" class="botao-padrao" disabled
                 title="Volta o gráfico para o ano civil (jan–dez), com a projeção até 31/dez">Voltar para jan–dez</button>
+      </div>
+      <div class="controles-referencia">
         <label title="Linha horizontal de referência desenhada no gráfico.">
           ${GRANDEZA} do Ponto de controle 1
           <input type="number" step="1" class="ctl-pc1" placeholder="${UNIDADE}">
