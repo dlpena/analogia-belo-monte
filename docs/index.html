@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Projeções de Vazão — UHE Belo Monte Montante</title>
-  <link rel="stylesheet" href="css/estilo.css?v=5">
+  <link rel="stylesheet" href="css/estilo.css?v=6">
   <script src="vendor/plotly.min.js"></script>
 </head>
 <body>
@@ -61,11 +61,12 @@
       </ol>
 
       <h3>O horizonte da projeção</h3>
-      <p>O seletor <strong>Horizonte da projeção</strong> define quantos meses inteiros são
-      projetados depois do mês do último dado, de 1 a 12 (padrão: 6). O mês do último dado não
-      entra na conta. O gráfico mostra sempre 12 meses inteiros, a partir do dia 1: com horizonte
-      de 6 meses, aparecem 6 meses observados, o mês corrente até o último dado e 6 meses
-      projetados. Quando o horizonte atravessa a virada do ano, cada ano análogo continua no ano
+      <p>Por padrão, o gráfico mostra o ano civil (jan–dez) e a projeção vai até 31/dez. O
+      seletor <strong>Horizonte da projeção</strong> permite projetar de 1 a 12 meses inteiros
+      depois do mês do último dado; o mês do último dado não entra na conta. Nesse caso, o
+      gráfico mostra 12 meses inteiros a partir do dia 1: com horizonte de 6 meses, aparecem 6
+      meses observados, o mês corrente até o último dado e 6 meses projetados. O botão
+      <strong>Voltar para jan–dez</strong> restaura o padrão. Quando o horizonte atravessa a virada do ano, cada ano análogo continua no ano
       seguinte a ele. O ano análogo cujo ano seguinte ainda não tem dados até o fim do horizonte
       sai do universo, com o motivo registrado na memória de cálculo; por isso horizontes longos
       podem reduzir o número de anos análogos.</p>
@@ -135,10 +136,10 @@
 
   <script src="vendor/jspdf.umd.min.js"></script>
   <script src="vendor/jspdf.plugin.autotable.min.js"></script>
-  <script src="js/analogia.js?v=8"></script>
-  <script src="js/grafico.js?v=8"></script>
-  <script src="js/graficos_extras.js?v=8"></script>
-  <script src="js/exportar_pdf.js?v=8"></script>
-  <script src="js/principal.js?v=8"></script>
+  <script src="js/analogia.js?v=9"></script>
+  <script src="js/grafico.js?v=9"></script>
+  <script src="js/graficos_extras.js?v=9"></script>
+  <script src="js/exportar_pdf.js?v=9"></script>
+  <script src="js/principal.js?v=9"></script>
 </body>
 </html>

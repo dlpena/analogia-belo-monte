@@ -18,7 +18,9 @@ const Grafico = (() => {
   };
   const MESES = ["jan", "fev", "mar", "abr", "mai", "jun",
                  "jul", "ago", "set", "out", "nov", "dez"];
-  const HORIZONTE_PADRAO = 6;   // meses inteiros projetados após o mês do último dado
+  // padrão: ano civil (gráfico jan–dez, projeção até 31/dez); o usuário pode escolher
+  // um horizonte de 1 a 12 meses inteiros após o mês do último dado e voltar ao padrão
+  const HORIZONTE_PADRAO = null;
   const MESES_JANELA = 12;      // meses inteiros no gráfico, além do mês do último dado
 
   // ---- janela do gráfico: datas em UTC, sem depender do fuso do navegador ----
@@ -320,7 +322,8 @@ const Grafico = (() => {
         return {
           fixedrange: true,
           tickvals: ticks,
-          ticktext: ticks.map(rotuloMes),
+          ticktext: semHorizonte(r) ? ticks.map((iso) => MESES[Number(iso.slice(5, 7)) - 1])
+                                    : ticks.map(rotuloMes),
           hoverformat: "%d/%m/%Y",
           gridcolor: "#efefec",
           range: [inicioJanela(r), r.fim_horizonte],
@@ -405,11 +408,11 @@ const Grafico = (() => {
     return L.join("\r\n");
   }
 
-  /** "6 meses (até 31/05/2027)" — ou a regra original, sem horizonte escolhido. */
+  const semHorizonte = (r) => r.horizonte_meses === null || r.horizonte_meses === undefined;
+
+  /** "6 meses (até 31/05/2027)" ou, no padrão, "ano civil (até 31/12/2026)". */
   function rotuloHorizonte(r) {
-    if (r.horizonte_meses === null || r.horizonte_meses === undefined) {
-      return `até ${formatarDataBR(r.fim_horizonte)}`;
-    }
+    if (semHorizonte(r)) return `ano civil (até ${formatarDataBR(r.fim_horizonte)})`;
     const h = r.horizonte_meses;
     return `${h} ${h === 1 ? "mês" : "meses"} (até ${formatarDataBR(r.fim_horizonte)})`;
   }
@@ -475,13 +478,16 @@ const Grafico = (() => {
         </span>
       </div>
       <div class="controles-referencia">
-        <label title="Meses inteiros projetados após o mês do último dado. O gráfico mostra 12 meses inteiros: os demais são os meses observados mais recentes.">
+        <label title="Padrão: ano civil (gráfico jan–dez, projeção até 31/dez). Ao escolher N meses, a projeção cobre N meses inteiros após o mês do último dado e o gráfico mostra 12 meses inteiros: os demais são os meses observados mais recentes.">
           Horizonte da projeção
           <select class="ctl-horizonte">
+            <option value="" selected>jan–dez (padrão)</option>
             ${Array.from({ length: 12 }, (_, i) => i + 1).map((h) =>
-              `<option value="${h}"${h === HORIZONTE_PADRAO ? " selected" : ""}>${h} ${h === 1 ? "mês" : "meses"}</option>`).join("")}
+              `<option value="${h}">${h} ${h === 1 ? "mês" : "meses"}</option>`).join("")}
           </select>
           <span class="ctl-fim-horizonte"></span></label>
+        <button type="button" class="botao-padrao" disabled
+                title="Volta o gráfico para o ano civil (jan–dez), com a projeção até 31/dez">Voltar para jan–dez</button>
         <label title="Linha horizontal de referência desenhada no gráfico.">
           ${GRANDEZA} do Ponto de controle 1
           <input type="number" step="1" class="ctl-pc1" placeholder="${UNIDADE}">
@@ -511,9 +517,10 @@ const Grafico = (() => {
       pc2: sec.querySelector(".ctl-pc2"),
       horizonte: sec.querySelector(".ctl-horizonte"),
       fimHorizonte: sec.querySelector(".ctl-fim-horizonte"),
+      botaoPadrao: sec.querySelector(".botao-padrao"),
     };
     // intervalo inicial: o menor (≥50 cm) que contém pelo menos 3 anos análogos,
-    // calculado para o horizonte padrão (ao trocar o horizonte, o intervalo é mantido)
+    // calculado no padrão jan–dez (ao trocar o horizonte, o intervalo é mantido)
     const rangeAuto = Analogia.rangeInicial(doc, Analogia.MIN_ANALOGOS, 50.0, HORIZONTE_PADRAO);
     const estado = { range: rangeAuto, modo: "cm", resultado: null, pc1: null, pc2: null,
                      horizonte: HORIZONTE_PADRAO };
@@ -592,10 +599,14 @@ const Grafico = (() => {
       estado.pc2 = lerPontoControle(el.pc2);
       agendarRender();
     });
-    el.horizonte.addEventListener("change", () => {
-      estado.horizonte = Number(el.horizonte.value);
+    function definirHorizonte(valor) {
+      estado.horizonte = valor === "" || valor === null ? null : Number(valor);
+      el.horizonte.value = estado.horizonte === null ? "" : String(estado.horizonte);
+      el.botaoPadrao.disabled = estado.horizonte === null;
       render();
-    });
+    }
+    el.horizonte.addEventListener("change", () => definirHorizonte(el.horizonte.value));
+    el.botaoPadrao.addEventListener("click", () => definirHorizonte(null));
 
     function resultadoComPontosControle() {
       const r = estado.resultado || calcularAtual();
@@ -606,7 +617,8 @@ const Grafico = (() => {
     });
     el.csv.addEventListener("click", () => {
       const r = resultadoComPontosControle();
-      baixarCSV(`analogia_${doc.slug}_${doc.ultima_data}_${estado.horizonte}m.csv`, gerarCSV(doc, r));
+      const sufixo = estado.horizonte === null ? "" : `_${estado.horizonte}m`;
+      baixarCSV(`analogia_${doc.slug}_${doc.ultima_data}${sufixo}.csv`, gerarCSV(doc, r));
     });
 
     REGISTRO.set(doc.slug, {
